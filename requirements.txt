@@ -3,3 +3,5 @@ smartapi-python
 pyotp
 requests
 starlette==0.38.2
+logzero
+websocket-client
