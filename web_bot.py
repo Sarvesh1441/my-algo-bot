@@ -130,7 +130,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि रिअल चार्ट
+# ४. मुख्य ट्रॅकिंग आणि रिअल लाईव्ह टाइम चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -140,19 +140,20 @@ try:
     if st.session_state.day_over:
         st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी रीसेट करा"):
-            for k, v in defaults.items():  # 🎯 100% फिक्स: 'in' जोडले आहे
+            for k, v in defaults.items():
                 st.session_state[k] = v
             save_state(dict(st.session_state))
             st.rerun()
         st.stop()
 
-    current_ts = int(time.time())
+    # 🎯 **भारताची अचूक लाईव्ह वेळ सेट करणे (IST = UTC + 5:30 Hours / 19800 sec)**
+    current_ts = int(time.time()) + 19800
 
     # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # डावीकडील मोकळी जागा भरण्यासाठी ३५ कॅन्डल्सचा बॅक डेटा तयार करणे
+        # डावीकडील मोकळी जागा भरण्यासाठी सलग ३५ कॅन्डल्सचा रिअल IST टाइम डेटा तयार करणे
         if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
             st.session_state.ohlc_data = []
             p = spot_price - 8.0
@@ -199,7 +200,7 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 
-                # ऑप्शन चार्ट सुरू होताच डावीकडील जागा बॅक डेटाने भरणे
+                # ऑप्शन ट्रेड सुरू होताच रिअल IST वेळेसह कॅन्डल्स शिफ्ट करणे
                 st.session_state.ohlc_data = []
                 p = entry_premium - 4.0
                 for i in range(35, 0, -1):
@@ -281,7 +282,7 @@ try:
     if len(st.session_state.ohlc_data) > 45:
         st.session_state.ohlc_data.pop(0)
 
-    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट विजेट**
+    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट विजेट (IST रिअल-टाइम फॉरमॅट सह)**
     st.subheader("🕯️ Live TradingView Standalone Chart")
     
     tv_json_data = json.dumps(st.session_state.ohlc_data)
@@ -307,7 +308,11 @@ try:
                 grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
                 crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
                 priceScale: {{ position: 'right', borderVisible: true }},
-                timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: false }}
+                timeScale: {{ 
+                    borderVisible: true, 
+                    timeVisible: true, 
+                    secondsVisible: true
+                }}
             }});
             
             const candleSeries = chart.addCandlestickSeries({{
@@ -318,8 +323,6 @@ try:
             
             const chartData = {tv_json_data};
             candleSeries.setData(chartData);
-            
-            // चार्टला पूर्ण स्क्रीनवर फिट करणे (No Side Push)
             chart.timeScale().fitContent();
             
             window.addEventListener('resize', () => {{
