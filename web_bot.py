@@ -14,9 +14,8 @@ st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout
 
 STATE_FILE = "trade_state.json"
 
-# 🎯 इथे लॉट साईझ २५ वरून ५० (२ लॉट) केला आहे. 
-# ३ लॉट करायचे असल्यास ७५ करा, ४ लॉटसाठी १०० करा.
-LOT_SIZE = 50 
+# 🎯 १ लॉट ६५ चा असल्यामुळे ५ लॉटसाठी एकूण ३२५ क्वांटिटी (६५ * ५ = ३२५)
+LOT_SIZE = 325 
 
 def save_state(state_data):
     with open(STATE_FILE, "w") as f:
@@ -37,7 +36,7 @@ def load_state():
     }
 
 st.title("📊 My Live Algo Paper Trading Dashboard")
-st.subheader(f"Angel One Live API | ITM ऑप्शन्स ट्रॅकिंग (लॉट साईझ: {LOT_SIZE})")
+st.subheader(f"Angel One Live API | ITM ऑप्शन्स ट्रॅकिंग (५ लॉट - एकूण क्वांटिटी: {LOT_SIZE})")
 
 # ==========================================
 # २. API लॉगिन
@@ -185,12 +184,12 @@ try:
                 spot_change = st.session_state.entry_spot_price - spot_price
             live_option_premium = st.session_state.premium_entry + (spot_change * 0.60)
 
-        # 🎯 इथे P&L कॅल्क्युलेशनसाठी नवीन LOT_SIZE (५०) वापरला आहे
+        # 🎯 ५ लॉटनुसार P&L कॅल्क्युलेशन (३२५ क्वांटिटी)
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
         sl_val = st.session_state.premium_entry - 15
         tgt_val = st.session_state.premium_entry + 30
 
-        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}** (Lots: {LOT_SIZE})")
+        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}** (५ Lots - Qty: {LOT_SIZE})")
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
