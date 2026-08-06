@@ -1,7 +1,6 @@
-streamlit
 smartapi-python
+streamlit
 pyotp
 requests
-starlette==0.38.2
-logzero
-websocket-client
+pandas
+plotly
