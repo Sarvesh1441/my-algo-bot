@@ -7,6 +7,7 @@ from SmartApi import SmartConnect
 import json
 import os
 import random
+import base64
 import streamlit.components.v1 as components
 
 # ==========================================
@@ -138,7 +139,7 @@ try:
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
     if st.session_state.day_over:
-        st.warning(f"🔒 आजचा ठेवा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी रीसेट करा"):
             for k, v in defaults.items():
                 st.session_state[k] = v
@@ -146,6 +147,7 @@ try:
             st.rerun()
         st.stop()
 
+    # 🎯 भारताचा वास्तविक रिअल टाइम (IST Time)
     current_ts = int(time.time()) + 19800
 
     # --- Waiting Mode ---
@@ -239,75 +241,4 @@ try:
                 p = c
             st.session_state.last_candle_time = current_ts
         else:
-            last_candle = st.session_state.ohlc_data[-1]
-            last_candle["high"] = float(max(last_candle["high"], live_option_premium))
-            last_candle["low"] = float(min(last_candle["low"], live_option_premium))
-            last_candle["close"] = float(live_option_premium)
-            
-            if current_ts - st.session_state.last_candle_time >= 10:
-                st.session_state.ohlc_data.append({
-                    "time": current_ts,
-                    "open": last_candle["close"],
-                    "high": max(last_candle["close"], live_option_premium) + random.uniform(0.1, 0.3),
-                    "low": min(last_candle["close"], live_option_premium) - random.uniform(0.1, 0.3),
-                    "close": live_option_premium
-                })
-                st.session_state.last_candle_time = current_ts
-
-        if not st.session_state.sl_trailed_to_cost:
-            if (live_option_premium - st.session_state.premium_entry) >= 20:
-                st.session_state.current_sl = st.session_state.premium_entry
-                st.session_state.current_tgt = st.session_state.premium_entry + 65
-                st.session_state.sl_trailed_to_cost = True
-                save_state(dict(st.session_state))
-
-        trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
-
-        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
-        c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
-        
-        sl_delta_text = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
-        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_delta_text)
-        
-        tgt_delta_text = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
-        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
-        st.markdown("---")
-
-    if len(st.session_state.ohlc_data) > 60:
-        st.session_state.ohlc_data.pop(0)
-
-    # 🚀 **१००% सुरक्षित झूम-लॉक ट्रेडिंगव्ह्यू विजेट (एरर-फ्री)**
-    st.subheader("🕯️ Live TradingView Standalone Chart")
-    
-    tv_json_data = json.dumps(st.session_state.ohlc_data)
-    
-    # 🎯 स्ट्रिंग फॉरमॅटिंग एरर पूर्णपणे घालवण्यासाठी ची नवीन पद्धत
-    tv_html_widget = (
-        "<!DOCTYPE html>\n"
-        "<html>\n"
-        "<head>\n"
-        "    <script src=\"https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js\"></script>\n"
-        "    <style>\n"
-        "        body { margin: 0; padding: 0; background-color: #ffffff; }\n"
-        "        #chart_div { width: 100%; height: 400px; }\n"
-        "    </style>\n"
-        "</head>\n"
-        "<body>\n"
-        "    <div id=\"chart_div\"></div>\n"
-        "    <script>\n"
-        "        if (!window.userHasZoomed) { window.userHasZoomed = false; }\n"
-        "        const container = document.getElementById('chart_div');\n"
-        "        const chart = LightweightCharts.createChart(container, {\n"
-        "            width: container.clientWidth,\n"
-        "            height: 400,\n"
-        "            layout: { backgroundColor: '#ffffff', textColor: '#333333' },\n"
-        "            grid: { vertLines: { color: '#f0f3fa' }, horzLines: { color: '#f0f3fa' } },\n"
-        "            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },\n"
-        "            priceScale: { position: 'right', borderVisible: true },\n"
-        "            timeScale: { borderVisible: true, timeVisible: true, secondsVisible: true }\n"
-        "        });\n"
-        "        const candleSeries = chart.addCandlestickSeries({\n"
-        "            up
+            last_candle = st.
