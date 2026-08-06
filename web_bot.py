@@ -6,6 +6,7 @@ import requests
 from SmartApi import SmartConnect
 import json
 import os
+import pandas as pd
 
 # ==========================================
 # १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
@@ -15,7 +16,7 @@ st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  # तुमचे एकूण कॅपिटल
 RISK_PER_TRADE = TOTAL_CAPITAL * 0.05  
-SL_POINTS = 15  # सुरुवातीचा मूळ स्टॉपलॉस १५ पॉईंट्स
+SL_POINTS = 15  # मूळ स्टॉपलॉस १५ पॉईंट्स
 NIFTY_LOT_SIZE = 65  
 
 calculated_lots = int(RISK_PER_TRADE / (SL_POINTS * NIFTY_LOT_SIZE))
@@ -96,7 +97,7 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# 🔒 सुरक्षित Session State Initialization (एरर फिक्स)
+# 🔒 Session State Initialization
 saved_data = load_state()
 
 defaults = {
@@ -110,7 +111,8 @@ defaults = {
     "day_over": False,
     "current_sl": 0.0,
     "current_tgt": 0.0,
-    "sl_trailed_to_cost": False
+    "sl_trailed_to_cost": False,
+    "price_history": []  # 📈 चार्टसाठी प्रीमियमची हिस्ट्री सेव्ह करणे
 }
 
 for key, default_val in defaults.items():
@@ -118,7 +120,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि सुधारित लॉजिक
+# ४. मुख्य डेटा ट्रॅकिंग आणि चार्ट डिस्प्ले
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -155,6 +157,7 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
+                st.session_state.price_history = [entry_premium]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -169,6 +172,12 @@ try:
         
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
+
+        # चार्टसाठी लाईव्ह भावाचा डेटा सेव्ह करणे
+        st.session_state.price_history.append(live_option_premium)
+        # डेटा जास्त मोठा होऊ नये म्हणून शेवटी ५० पॉईंट्स ठेवणे
+        if len(st.session_state.price_history) > 50:
+            st.session_state.price_history.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
             if (live_option_premium - st.session_state.premium_entry) >= 20:
@@ -192,6 +201,14 @@ try:
         c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_status)
         
         st.markdown("---")
+        
+        # 📈 **लाइव्ह ऑप्शन प्रीमियमचा चार्ट**
+        st.subheader("📉 Live Option Premium Chart")
+        chart_data = pd.DataFrame({
+            "Live Premium": st.session_state.price_history
+        })
+        st.line_chart(chart_data)
+
         if trade_pnl >= 0:
             st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
         else:
