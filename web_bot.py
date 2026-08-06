@@ -132,30 +132,32 @@ defaults = {
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
     "ohlc_data": [],
-    "last_candle_time": 0
+    "last_candle_time": 0,
+    "selected_tf": "5-Min"
 }
 
 for key, default_val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = saved_data.get(key, default_val)
 
-# ⏱️ टाइम फ्रेम सिलेक्टर (RefreshProof)
+# ⏱️ परमनंट टाइम फ्रेम रेडिओ बटन्स
 time_frame = st.radio(
     "⏱️ Select Chart Candle Time Frame:", 
     ["1-Min", "5-Min", "15-Min"], 
-    index=1, 
+    index=["1-Min", "5-Min", "15-Min"].index(st.session_state.get("selected_tf", "5-Min")), 
     horizontal=True
 )
 
+if time_frame != st.session_state.selected_tf:
+    st.session_state.selected_tf = time_frame
+    st.session_state.ohlc_data = [] # टाइम फ्रेम बदलल्यावर नवीन डेटा रिसेट करणे
+
 if time_frame == "1-Min":
     tf_seconds = 60
-    base_diff = 60
 elif time_frame == "15-Min":
     tf_seconds = 900
-    base_diff = 300
 else:
     tf_seconds = 300  
-    base_diff = 120
 
 # ==========================================
 # ४. मुख्य डेटा फेचिंग लॉजिक
@@ -179,10 +181,8 @@ if st.session_state.day_over:
         st.rerun()
     st.stop()
 
-# 🎯 अचूक भारतीय वेळ (IST)
+# 🎯 अचूक UNIX टाइमस्टॅम्प (IST वेळ)
 current_ts = int(time.time()) + 19800
-
-# 🎯 लाईन १८७ फिक्स: कोणतीही कंडिशन उजवीकडे मोठी ठेवलेली नाही (No Cutting)
 is_active_trade = st.session_state.in_position
 
 # --- Waiting Mode ---
@@ -192,14 +192,18 @@ if not is_active_trade:
     if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
         st.session_state.ohlc_data = []
         p = spot_price - 8.0
-        for i in range(35, 0, -1):
+        start_time = current_ts - (35 * tf_seconds)
+        for i in range(35):
             o = p
             c = p + random.choice([-2.5, -1.0, 1.5, 3.5])
             h = max(o, c) + random.uniform(0.4, 1.2)
             l = min(o, c) - random.uniform(0.4, 1.2)
             st.session_state.ohlc_data.append({
-                "time": current_ts - (i * base_diff), "open": round(o, 2),
-                "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+                "time": start_time + (i * tf_seconds),
+                "open": round(o, 2),
+                "high": round(h, 2),
+                "low": round(l, 2),
+                "close": round(c, 2)
             })
             p = c
         st.session_state.last_candle_time = current_ts
@@ -210,8 +214,11 @@ if not is_active_trade:
             h = max(last_c, next_c) + random.uniform(0.3, 1.0)
             l = min(last_c, next_c) - random.uniform(0.3, 1.0)
             st.session_state.ohlc_data.append({
-                "time": current_ts, "open": last_c, "high": round(h, 2),
-                "low": round(l, 2), "close": round(next_c, 2)
+                "time": current_ts,
+                "open": last_c,
+                "high": round(h, 2),
+                "low": round(l, 2),
+                "close": round(next_c, 2)
             })
             st.session_state.last_candle_time = current_ts
             
@@ -237,14 +244,18 @@ if not is_active_trade:
             
             st.session_state.ohlc_data = []
             p = entry_premium - 4.0
-            for i in range(35, 0, -1):
+            start_time = current_ts - (35 * tf_seconds)
+            for i in range(35):
                 o = p
                 c = p + random.choice([-1.0, 0.5, 1.8])
                 h = max(o, c) + random.uniform(0.2, 0.6)
                 l = min(o, c) - random.uniform(0.2, 0.6)
                 st.session_state.ohlc_data.append({
-                    "time": current_ts - (i * base_diff), "open": round(o, 2),
-                    "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+                    "time": start_time + (i * tf_seconds),
+                    "open": round(o, 2),
+                    "high": round(h, 2),
+                    "low": round(l, 2),
+                    "close": round(c, 2)
                 })
                 p = c
             st.session_state.last_candle_time = current_ts
@@ -266,14 +277,18 @@ else:
     if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
         st.session_state.ohlc_data = []
         p = live_option_premium - 4.0
-        for i in range(35, 0, -1):
+        start_time = current_ts - (35 * tf_seconds)
+        for i in range(35):
             o = p
             c = p + random.choice([-1.0, 0.5, 1.8])
             h = max(o, c) + 0.4
             l = min(o, c) - 0.4
             st.session_state.ohlc_data.append({
-                "time": current_ts - (i * base_diff), "open": round(o, 2), 
-                "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+                "time": start_time + (i * tf_seconds),
+                "open": round(o, 2),
+                "high": round(h, 2),
+                "low": round(l, 2),
+                "close": round(c, 2)
             })
             p = c
         st.session_state.last_candle_time = current_ts
@@ -287,8 +302,11 @@ else:
             h = max(last_candle_obj["close"], live_option_premium) + random.uniform(0.1, 0.3)
             l = min(last_candle_obj["close"], live_option_premium) - random.uniform(0.1, 0.3)
             st.session_state.ohlc_data.append({
-                "time": current_ts, "open": last_candle_obj["close"],
-                "high": round(h, 2), "low": round(l, 2), "close": live_option_premium
+                "time": current_ts,
+                "open": last_candle_obj["close"],
+                "high": round(h, 2),
+                "low": round(l, 2),
+                "close": live_option_premium
             })
             st.session_state.last_candle_time = current_ts
 
@@ -318,7 +336,7 @@ if len(st.session_state.ohlc_data) > 60:
     st.session_state.ohlc_data.pop(0)
 
 # ==========================================
-# ५. १००% सुरक्षित झूम-锁定 ट्रेडिंगव्ह्यू चार्ट
+# ५. १००% कॅन्डल प्रिंट होणारा ट्रेडिंगव्ह्यू चार्ट
 # ==========================================
 st.subheader(f"🕯️ Live TradingView Standalone Chart ({time_frame})")
 
@@ -354,7 +372,7 @@ raw_html = f"""<!DOCTYPE html>
             priceScale: {{ position: 'right', borderVisible: true }},
             timeScale: {{ 
                 borderVisible: true, timeVisible: true, secondsVisible: true,
-                barSpacing: 8, rightOffset: 3
+                barSpacing: 10, rightOffset: 3
             }}
         }});
         
@@ -366,6 +384,7 @@ raw_html = f"""<!DOCTYPE html>
         
         const chartData = {tv_json_data};
         candleSeries.setData(chartData);
+        chart.timeScale().fitContent();
         
         if ({str(is_active_trade).lower()}) {{
             // 🔵 BUY ENTRY
