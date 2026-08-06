@@ -8,11 +8,15 @@ import json
 import os
 
 # ==========================================
-# १. पेज आणि फाईल सेटिंग्ज
+# १. पेज, फाईल आणि लॉट साईझ सेटिंग्ज
 # ==========================================
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
 STATE_FILE = "trade_state.json"
+
+# 🎯 इथे लॉट साईझ २५ वरून ५० (२ लॉट) केला आहे. 
+# ३ लॉट करायचे असल्यास ७५ करा, ४ लॉटसाठी १०० करा.
+LOT_SIZE = 50 
 
 def save_state(state_data):
     with open(STATE_FILE, "w") as f:
@@ -33,7 +37,7 @@ def load_state():
     }
 
 st.title("📊 My Live Algo Paper Trading Dashboard")
-st.subheader("Angel One Live API द्वारे १००% अचूक ITM ऑप्शन्स ट्रॅकिंग")
+st.subheader(f"Angel One Live API | ITM ऑप्शन्स ट्रॅकिंग (लॉट साईझ: {LOT_SIZE})")
 
 # ==========================================
 # २. API लॉगिन
@@ -59,17 +63,15 @@ else:
     st.success("✅ Angel One Live API यशस्वीरित्या कनेक्ट झाली आहे!")
 
 # ==========================================
-# ३. सर्वात जवळची (Latest Current) एक्सपायरी आणि टोकन शोधणारे फंक्शन
+# ३. सर्वात जवळची एक्सपायरी आणि टोकन शोधणारे फंक्शन
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_latest_angel_token(strike_price, option_type):
-    """Angel One च्या मास्टर लिस्टधून चालू महिन्याची सर्वात जवळची एक्सपायरी शोधणे"""
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         res = requests.get(url).json()
         
         valid_options = []
-        
         for item in res:
             if (item.get("exch_seg") == "NFO" and 
                 item.get("name") == "NIFTY" and 
@@ -95,7 +97,6 @@ def fetch_latest_angel_token(strike_price, option_type):
         pass
     return None, None, None
 
-# लेव्हल्स व्याख्या (उदाहरणासाठी स्थिर ठेवल्या आहेत)
 tc = 24433.33  
 bc = 24400.00  
 
@@ -105,7 +106,7 @@ col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 
 st.markdown("---")
 
-# फाईल मधून जुनी पोझिशन लोड करणे
+# पोझिशन लोड करणे
 saved_data = load_state()
 if 'in_position' not in st.session_state:
     st.session_state.in_position = saved_data.get("in_position", False)
@@ -120,20 +121,19 @@ if 'in_position' not in st.session_state:
 # ४. मुख्य डेटा ट्रॅकिंग आणि ITM लॉजिक
 # ==========================================
 try:
-    # १. NIFTY Spot चा थेट भाव मिळवणे
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
     spot_price = float(spot_data["data"]["ltp"]) if spot_data.get("status") and spot_data.get("data") else 24630.00
     
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
-    # --- Waiting Mode (ब्रेकआऊटची वाट पाहणे) ---
+    # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ बॉट ब्रेकआऊटची वाट पाहत आहे... | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # 🟢 CALL TRIGGER (१ स्ट्राईक In-The-Money - ITM)
+        # 🟢 CALL TRIGGER
         if spot_price > tc:
             atm_strike = round(spot_price / 50) * 50
-            itm_strike = atm_strike - 50  # CALL साठी ITM म्हणजे ५० रुपये खाली
+            itm_strike = atm_strike - 50  
             
             token, symbol_name, expiry_date = fetch_latest_angel_token(itm_strike, "CE")
             
@@ -150,10 +150,10 @@ try:
                 save_state(dict(st.session_state))
                 st.rerun()
             
-        # 🔴 PUT TRIGGER (१ स्ट्राईक In-The-Money - ITM)
+        # 🔴 PUT TRIGGER
         elif spot_price < bc:
             atm_strike = round(spot_price / 50) * 50
-            itm_strike = atm_strike + 50  # PUT साठी ITM म्हणजे ५० रुपये वर
+            itm_strike = atm_strike + 50  
             
             token, symbol_name, expiry_date = fetch_latest_angel_token(itm_strike, "PE")
             
@@ -170,32 +170,31 @@ try:
                 save_state(dict(st.session_state))
                 st.rerun()
                 
-    # --- Active Tracking Mode (चालू ट्रेड ट्रॅक करणे) ---
+    # --- Active Tracking Mode ---
     else:
         live_option_premium = 0.0
-        # थेट Angel One मधून त्या विशिष्ट ITM ऑप्शनचा चालू भाव आणणे
         if st.session_state.option_token:
             opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
             if opt_data.get("status") and opt_data.get("data"):
                 live_option_premium = float(opt_data["data"]["ltp"])
         
-        # जर API कडून डेटा मिळाला नाही तर बॅकअप कॅल्क्युलेशन
         if live_option_premium == 0.0:
             if st.session_state.trade_type == "CE":
                 spot_change = spot_price - st.session_state.entry_spot_price
             else:
                 spot_change = st.session_state.entry_spot_price - spot_price
-            live_option_premium = st.session_state.premium_entry + (spot_change * 0.60) # ITM चा डेल्टा जास्त (~0.60) असतो
+            live_option_premium = st.session_state.premium_entry + (spot_change * 0.60)
 
-        trade_pnl = (live_option_premium - st.session_state.premium_entry) * 25
+        # 🎯 इथे P&L कॅल्क्युलेशनसाठी नवीन LOT_SIZE (५०) वापरला आहे
+        trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
         sl_val = st.session_state.premium_entry - 15
         tgt_val = st.session_state.premium_entry + 30
 
-        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
+        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}** (Lots: {LOT_SIZE})")
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
-        c2.metric("Live Option Premium (Angel One)", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - st.session_state.premium_entry:.2f}")
+        c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - st.session_state.premium_entry:.2f}")
         
         if trade_pnl >= 0:
             c3.metric("Live P&L", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
