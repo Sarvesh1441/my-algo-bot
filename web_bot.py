@@ -6,7 +6,6 @@ import requests
 from SmartApi import SmartConnect
 import json
 import os
-import pandas as pd
 import streamlit.components.v1 as components
 
 # ==========================================
@@ -115,8 +114,7 @@ defaults = {
     "day_over": False,
     "current_sl": 0.0,
     "current_tgt": 0.0,
-    "sl_trailed_to_cost": False,
-    "ohlc_data": [] 
+    "sl_trailed_to_cost": False
 }
 
 for key, default_val in defaults.items():
@@ -124,7 +122,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग
+# ४. मुख्य डेटा ट्रॅकिंग आणि रिअल चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -154,8 +152,6 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
-                current_ts = int(time.time())
-                
                 st.session_state.trade_type = trade_type
                 st.session_state.selected_option = symbol_name
                 st.session_state.option_token = token
@@ -163,9 +159,6 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
-                st.session_state.ohlc_data = [{
-                    "time": current_ts, "open": entry_premium, "high": entry_premium + 1, "low": entry_premium - 1, "close": entry_premium
-                }]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -180,27 +173,6 @@ try:
         
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
-
-        current_ts = int(time.time())
-        
-        # सुरक्षित कॅन्डल मॅनेजमेंट (एरर फिक्स)
-        if not st.session_state.ohlc_data or not isinstance(st.session_state.ohlc_data[0], dict) or "high" not in st.session_state.ohlc_data[0]:
-            st.session_state.ohlc_data = [{
-                "time": current_ts, "open": live_option_premium, "high": live_option_premium, "low": live_option_premium, "close": live_option_premium
-            }]
-        else:
-            last_candle = st.session_state.ohlc_data[-1]
-            last_candle["high"] = max(last_candle.get("high", live_option_premium), live_option_premium)
-            last_candle["low"] = min(last_candle.get("low", live_option_premium), live_option_premium)
-            last_candle["close"] = live_option_premium
-            
-            if current_ts - last_candle.get("time", current_ts) >= 10:
-                st.session_state.ohlc_data.append({
-                    "time": current_ts, "open": live_option_premium, "high": live_option_premium, "low": live_option_premium, "close": live_option_premium
-                })
-
-        if len(st.session_state.ohlc_data) > 60:
-            st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
             if (live_option_premium - st.session_state.premium_entry) >= 20:
@@ -217,82 +189,4 @@ try:
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
         c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
         c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta="Cost-to-Cost 🔒" if st.session_state.sl_trailed_to_cost else "मूळ SL ⚠️")
-        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta="१:३ टार्गेट 🚀" if st.session_state.sl_trailed_to_cost else "प्राथमिक ⏳")
-        
-        st.markdown("---")
-        
-        # 🚀 TradingView Chart Component
-        st.subheader("🕯️ Live TradingView Candlestick Chart")
-        
-        tv_data = json.dumps(st.session_state.ohlc_data)
-        
-        html_code = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-            <style>
-                body {{ margin: 0; padding: 0; background-color: #ffffff; }}
-                #chart {{ width: 100%; height: 420px; }}
-            </style>
-        </head>
-        <body>
-            <div id="chart"></div>
-            <script>
-                const chartProperties = {{
-                    width: document.getElementById('chart').clientWidth,
-                    height: 420,
-                    layout: {{ backgroundColor: '#ffffff', textColor: '#787b86' }},
-                    grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
-                    crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-                    priceScale: {{ position: 'right', borderVisible: true }},
-                    timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: false }}
-                }};
-                
-                const chart = LightweightCharts.createChart(document.getElementById('chart'), chartProperties);
-                const candleSeries = chart.addCandlestickSeries({{
-                    upColor: '#26a69a', downColor: '#ef5350',
-                    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-                    wickUpColor: '#26a69a', wickDownColor: '#ef5350'
-                }});
-                
-                const rawData = {tv_data};
-                candleSeries.setData(rawData);
-                
-                window.addEventListener('resize', () => {{
-                    chart.resize(document.getElementById('chart').clientWidth, 420);
-                }});
-            </script>
-        </body>
-        </html>
-        """
-        
-        components.html(html_code, height=440, scrolling=False)
-
-        if trade_pnl >= 0:
-            st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
-        else:
-            st.metric("Live Profit / Loss", f"-₹{abs(trade_pnl):.2f}", delta=f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
-            
-        st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        
-        # Exit Checks
-        if live_option_premium >= st.session_state.current_tgt:
-            st.balloons()
-            st.session_state.total_day_pnl += trade_pnl
-            st.session_state.in_position = False
-            st.session_state.day_over = True
-            save_state(dict(st.session_state))
-            st.rerun()
-        elif live_option_premium <= st.session_state.current_sl:
-            st.session_state.total_day_pnl += trade_pnl
-            st.session_state.in_position = False
-            st.session_state.day_over = True
-            save_state(dict(st.session_state))
-            st.rerun()
-
-except Exception as e:
-    st.error(f"डेटा ट्रॅक करताना अडचण: {e}")
-
-time.sleep(1)
-st.rerun()
+        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta="१:३ टार्गेट
