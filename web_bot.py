@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 🔄 **दर २ सेकंदाला लाईव्ह डेटा ऑटो-रिफ्रेश करणारी मॅजिक लाईन**
+# दर २ सेकंदाला लाईव्ह डेटा ऑटो-रिफ्रेश करणारी मॅजिक लाईन
 st_autorefresh(interval=2000, limit=None, key="live_data_refresher")
 
 STATE_FILE = "trade_state.json"
@@ -241,11 +241,14 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # Live Candle Update
+    # 🎯 लाईन २४७ फिक्स: KeyError टाळण्यासाठी सुरक्षित '.get()' रचना
     if st.session_state.ohlc_data:
         last_c = st.session_state.ohlc_data[-1]
-        last_c["high"] = float(max(last_c["high"], live_option_premium))
-        last_c["low"] = float(min(last_c["low"], live_option_premium))
+        old_high = last_c.get("high", live_option_premium)
+        old_low = last_c.get("low", live_option_premium)
+        
+        last_c["high"] = float(max(old_high, live_option_premium))
+        last_c["low"] = float(min(old_low, live_option_premium))
         last_c["close"] = float(live_option_premium)
 
     trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
