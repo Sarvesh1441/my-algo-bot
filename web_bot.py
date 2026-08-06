@@ -6,11 +6,17 @@ import requests
 from SmartApi import SmartConnect
 import json
 import os
+import random
+import streamlit.components.v1 as components
 
 # ==========================================
 # १. पेज आणि कॅपिटल सेटिंग्ज
 # ==========================================
-st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="Algo Trading Dashboard", 
+    page_icon="📈", 
+    layout="wide"
+)
 
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  
@@ -39,8 +45,11 @@ def load_state():
             pass
     return {}
 
-st.title("📊 Live Algo Trading Dashboard")
-st.subheader(f"💰 Capital: ₹{TOTAL_CAPITAL:,} | Lots: {calculated_lots} (Qty: {LOT_SIZE})")
+st.title("📊 My Live Algo Trading Dashboard")
+st.subheader(
+    f"💰 Capital: ₹{TOTAL_CAPITAL:,} | "
+    f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
+)
 
 # ==========================================
 # २. API लॉगिन
@@ -121,7 +130,9 @@ defaults = {
     "day_over": False,
     "current_sl": 0.0,
     "current_tgt": 0.0,
-    "sl_trailed_to_cost": False
+    "sl_trailed_to_cost": False,
+    "ohlc_data": [],
+    "last_candle_time": 0
 }
 
 for key, default_val in defaults.items():
@@ -129,7 +140,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग लॉजिक (नो-चार्ट, हाय-स्पीड)
+# ४. मुख्य डेटा फेचिंग लॉजिक
 # ==========================================
 spot_price = 24630.00
 try:
@@ -142,7 +153,7 @@ except Exception:
 st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
 if st.session_state.day_over:
-    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
     if st.button("🔄 उद्यासाठी रीसेट करा"):
         for k, v in defaults.items():
             st.session_state[k] = v
@@ -150,99 +161,5 @@ if st.session_state.day_over:
         st.rerun()
     st.stop()
 
-# --- Waiting Mode ---
-if not st.session_state.in_position:
-    st.info(f"⏳ BREAKOUT ची वाट पाहत आहे... | आजचा P&L: ₹{st.session_state.total_day_pnl:.2f}")
-    
-    if spot_price > tc or spot_price < bc:
-        trade_type = "CE" if spot_price > tc else "PE"
-        atm_strike = round(spot_price / 50) * 50
-        itm_strike = atm_strike - 50 if trade_type == "CE" else atm_strike + 50
-        
-        token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
-        if token and symbol_name:
-            opt_data = smart_api.ltpData("NFO", symbol_name, token)
-            entry_premium = 140.00
-            if opt_data and opt_data.get("status") and opt_data.get("data"):
-                entry_premium = float(opt_data["data"]["ltp"])
-            
-            st.session_state.trade_type = trade_type
-            st.session_state.selected_option = symbol_name
-            st.session_state.option_token = token
-            st.session_state.premium_entry = entry_premium
-            st.session_state.current_sl = entry_premium - SL_POINTS
-            st.session_state.current_tgt = entry_premium + 30
-            st.session_state.sl_trailed_to_cost = False
-            st.session_state.in_position = True
-            save_state(dict(st.session_state))
-            st.rerun()
-
-# --- Active Tracking Mode ---
-else:
-    live_option_premium = st.session_state.premium_entry
-    try:
-        if st.session_state.option_token:
-            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
-            if opt_data and opt_data.get("status") and opt_data.get("data"):
-                live_option_premium = float(opt_data["data"]["ltp"])
-    except Exception:
-        pass
-
-    # Trailing SL Check (+20 Points Move)
-    if not st.session_state.sl_trailed_to_cost:
-        if (live_option_premium - st.session_state.premium_entry) >= 20:
-            st.session_state.current_sl = st.session_state.premium_entry
-            st.session_state.current_tgt = st.session_state.premium_entry + 65
-            st.session_state.sl_trailed_to_cost = True
-            save_state(dict(st.session_state))
-
-    trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
-
-    st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
-    
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🔵 Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
-    m2.metric("⚡ Live Premium", f"₹{live_option_premium:.2f}")
-    
-    sl_label = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
-    m3.metric("🔴 Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_label)
-    
-    tgt_label = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Target"
-    m4.metric("🟢 Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_label)
-    
-    st.markdown("---")
-    
-    # 💰 Live Running P&L Display
-    if trade_pnl >= 0:
-        st.metric(
-            label="💵 LIVE RUNNING PROFIT", 
-            value=f"+₹{trade_pnl:.2f}", 
-            delta=f"+₹{trade_pnl:.2f}"
-        )
-    else:
-        st.metric(
-            label="🔻 LIVE RUNNING LOSS", 
-            value=f"-₹{abs(trade_pnl):.2f}", 
-            delta=f"-₹{abs(trade_pnl):.2f}", 
-            delta_color="inverse"
-        )
-        
-    st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
-    
-    # Exit Conditions (Target or SL Hit)
-    if live_option_premium >= st.session_state.current_tgt:
-        st.balloons()
-        st.session_state.total_day_pnl += trade_pnl
-        st.session_state.in_position = False
-        st.session_state.day_over = True
-        save_state(dict(st.session_state))
-        st.rerun()
-    elif live_option_premium <= st.session_state.current_sl:
-        st.session_state.total_day_pnl += trade_pnl
-        st.session_state.in_position = False
-        st.session_state.day_over = True
-        save_state(dict(st.session_state))
-        st.rerun()
-
-time.sleep(1)
-st.rerun()
+# 🎯 अचूक भारतीय वेळ (IST)
+current_
