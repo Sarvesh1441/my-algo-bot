@@ -130,21 +130,10 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि रिअल लाईव्ह टाइम चार्ट
+# ४. मुख्य ट्रॅकिंग लॉजिक (आता पूर्ण सुरक्षित)
 # ==========================================
+spot_price = 24630.00
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
-    spot_price = float(spot_data["data"]["ltp"]) if spot_data.get("status") and spot_data.get("data") else 24630.00
-    st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
-
-    if st.session_state.day_over:
-        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        if st.button("🔄 उद्यासाठी रीसेट करा"):
-            for k, v in defaults.items():
-                st.session_state[k] = v
-            save_state(dict(st.session_state))
-            st.rerun()
-        st.stop()
-
-    # 🎯 भारताची अचूक रिअल टाईम सिस्टीम (IST = UTC + 5:30 Hours)
-    current_ts = int(time.time()) + 1980
+    if spot_data.get("status") and spot_data.get("data"):
+        spot_price = float(spot_
