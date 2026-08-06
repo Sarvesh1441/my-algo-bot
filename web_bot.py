@@ -138,7 +138,7 @@ try:
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
     if st.session_state.day_over:
-        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        st.warning(f"🔒 आजचा ठेवा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी रीसेट करा"):
             for k, v in defaults.items():
                 st.session_state[k] = v
@@ -279,12 +279,35 @@ try:
     if len(st.session_state.ohlc_data) > 60:
         st.session_state.ohlc_data.pop(0)
 
-    # 🚀 **झूम-लॉक फंक्शनॅलिटीसह ट्रेडिंगव्ह्यू चार्ट इंजिन**
+    # 🚀 **१००% सुरक्षित झूम-लॉक ट्रेडिंगव्ह्यू विजेट (एरर-फ्री)**
     st.subheader("🕯️ Live TradingView Standalone Chart")
     
     tv_json_data = json.dumps(st.session_state.ohlc_data)
     
-    tv_html_widget = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
+    # 🎯 स्ट्रिंग फॉरमॅटिंग एरर पूर्णपणे घालवण्यासाठी ची नवीन पद्धत
+    tv_html_widget = (
+        "<!DOCTYPE html>\n"
+        "<html>\n"
+        "<head>\n"
+        "    <script src=\"https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js\"></script>\n"
+        "    <style>\n"
+        "        body { margin: 0; padding: 0; background-color: #ffffff; }\n"
+        "        #chart_div { width: 100%; height: 400px; }\n"
+        "    </style>\n"
+        "</head>\n"
+        "<body>\n"
+        "    <div id=\"chart_div\"></div>\n"
+        "    <script>\n"
+        "        if (!window.userHasZoomed) { window.userHasZoomed = false; }\n"
+        "        const container = document.getElementById('chart_div');\n"
+        "        const chart = LightweightCharts.createChart(container, {\n"
+        "            width: container.clientWidth,\n"
+        "            height: 400,\n"
+        "            layout: { backgroundColor: '#ffffff', textColor: '#333333' },\n"
+        "            grid: { vertLines: { color: '#f0f3fa' }, horzLines: { color: '#f0f3fa' } },\n"
+        "            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },\n"
+        "            priceScale: { position: 'right', borderVisible: true },\n"
+        "            timeScale: { borderVisible: true, timeVisible: true, secondsVisible: true }\n"
+        "        });\n"
+        "        const candleSeries = chart.addCandlestickSeries({\n"
+        "            up
