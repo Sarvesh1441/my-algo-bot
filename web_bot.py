@@ -140,31 +140,30 @@ try:
     if st.session_state.day_over:
         st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी रीसेट करा"):
-            for k, v in defaults.items():
+            for k, v defaults.items():
                 st.session_state[k] = v
             save_state(dict(st.session_state))
             st.rerun()
         st.stop()
 
-    # UNIX timestamp आवश्यक आहे ट्रेडिंगव्ह्यूसाठी
     current_ts = int(time.time())
 
     # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # वेटिंग मोडमध्ये खऱ्या कॅन्डल्स सलग जनरेट करणे (कोणत्याही सरळ रेषांशिवाय)
+        # 🎯 बॅक डेटा फिक्स: डावीकडील मोकळी जागा भरण्यासाठी सलग ३५ कॅन्डल्सचा बॅक डेटा तयार करणे
         if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
             st.session_state.ohlc_data = []
-            p = spot_price - 5.0
-            for i in range(20, 0, -1):
+            p = spot_price - 8.0
+            for i in range(35, 0, -1):
                 o = p
-                c = p + random.choice([-3, -1.5, 2, 4])
+                c = p + random.choice([-2.5, -1.0, 1.5, 3.5])
                 st.session_state.ohlc_data.append({
                     "time": current_ts - (i * 10),
                     "open": round(o, 2),
-                    "high": round(max(o, c) + random.uniform(0.5, 1.5), 2),
-                    "low": round(min(o, c) - random.uniform(0.5, 1.5), 2),
+                    "high": round(max(o, c) + random.uniform(0.4, 1.2), 2),
+                    "low": round(min(o, c) - random.uniform(0.4, 1.2), 2),
                     "close": round(c, 2)
                 })
                 p = c
@@ -172,12 +171,12 @@ try:
         else:
             if current_ts - st.session_state.last_candle_time >= 10:
                 last_c = st.session_state.ohlc_data[-1]["close"]
-                next_c = last_c + random.choice([-2, 1.5, 3])
+                next_c = last_c + random.choice([-1.5, 1.2, 2.8])
                 st.session_state.ohlc_data.append({
                     "time": current_ts,
                     "open": last_c,
-                    "high": round(max(last_c, next_c) + random.uniform(0.3, 1.2), 2),
-                    "low": round(min(last_c, next_c) - random.uniform(0.3, 1.2), 2),
+                    "high": round(max(last_c, next_c) + random.uniform(0.3, 1.0), 2),
+                    "low": round(min(last_c, next_c) - random.uniform(0.3, 1.0), 2),
                     "close": next_c
                 })
                 st.session_state.last_candle_time = current_ts
@@ -200,14 +199,18 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 
-                # नव्या ट्रेडमध्ये ऑप्शन प्राईसवर शिफ्ट करणे
+                # 🎯 ऑप्शन ट्रेड सुरू होताच मागील ३५ कॅन्डल्सचा बॅक डेटा ऑप्शनच्या भावावर शिफ्ट करणे
                 st.session_state.ohlc_data = []
-                p = entry_premium - 2.0
-                for i in range(20, 0, -1):
+                p = entry_premium - 4.0
+                for i in range(35, 0, -1):
                     o = p
-                    c = p + random.choice([-1.2, 0.8, 1.5])
+                    c = p + random.choice([-1.0, 0.5, 1.8])
                     st.session_state.ohlc_data.append({
-                        "time": current_ts - (i * 10), "open": round(o,2), "high": round(max(o,c)+0.4,2), "low": round(min(o,c)-0.4,2), "close": round(c,2)
+                        "time": current_ts - (i * 10),
+                        "open": round(o, 2),
+                        "high": round(max(o, c) + random.uniform(0.2, 0.6), 2),
+                        "low": round(min(o, c) - random.uniform(0.2, 0.6), 2),
+                        "close": round(c, 2)
                     })
                     p = c
                 st.session_state.last_candle_time = current_ts
@@ -227,7 +230,15 @@ try:
             live_option_premium = st.session_state.premium_entry
 
         if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
-            st.session_state.ohlc_data = [{"time": current_ts, "open": live_option_premium, "high": live_option_premium+0.5, "low": live_option_premium-0.5, "close": live_option_premium}]
+            st.session_state.ohlc_data = []
+            p = live_option_premium - 4.0
+            for i in range(35, 0, -1):
+                o = p
+                c = p + random.choice([-1.0, 0.5, 1.8])
+                st.session_state.ohlc_data.append({
+                    "time": current_ts - (i * 10), "open": round(o,2), "high": round(max(o,c)+0.4,2), "low": round(min(o,c)-0.4,2), "close": round(c,2)
+                })
+                p = c
             st.session_state.last_candle_time = current_ts
         else:
             last_candle = st.session_state.ohlc_data[-1]
@@ -267,15 +278,14 @@ try:
         c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
         st.markdown("---")
 
-    if len(st.session_state.ohlc_data) > 30:
+    if len(st.session_state.ohlc_data) > 45:
         st.session_state.ohlc_data.pop(0)
 
-    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट इंजिन (JavaScript Embed)**
-    st.subheader("🕯️ Live TradingView Standalone Chart")
+    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट इंजिन**
+    st.subheader("🕯 Tangible TradingView Interface")
     
     tv_json_data = json.dumps(st.session_state.ohlc_data)
     
-    # थेट JS इंजिन जे कधीही ब्लॉक होत नाही आणि परफेक्ट बारीक कॅन्डल बनवतं
     tv_html_widget = f"""
     <!DOCTYPE html>
     <html>
@@ -297,21 +307,24 @@ try:
                 grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
                 crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
                 priceScale: {{ position: 'right', borderVisible: true }},
-                timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: true }}
+                timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: false }}
             }});
             
             const candleSeries = chart.addCandlestickSeries({{
                 upColor: '#26a69a', downColor: '#ef5350',
                 borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-                wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-                barSpacing: 6
+                wickUpColor: '#26a69a', wickDownColor: '#ef5350'
             }});
             
             const chartData = {tv_json_data};
             candleSeries.setData(chartData);
             
+            // 🎯 ऑटोमॅटिकली चार्टला संपूर्ण स्क्रीन व्यापण्यासाठी फिट करणे (No Sidebar Push)
+            chart.timeScale().fitContent();
+            
             window.addEventListener('resize', () => {{
                 chart.resize(container.clientWidth, 400);
+                chart.timeScale().fitContent();
             }});
         </script>
     </body>
