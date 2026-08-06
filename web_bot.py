@@ -37,16 +37,17 @@ else:
     st.success("✅ Angel One Live API यशस्वीरित्या कनेक्ट झाली आहे!")
 
 # ==========================================
-# ३. Angel One Master लिस्टधून ऑटो-टोकन शोधणे
+# ३. सर्वात जवळची (Latest Current) एक्सपायरी शोधणारे फंक्शन
 # ==========================================
 @st.cache_data(ttl=86400)
-def fetch_angel_token_and_symbol(strike_price, option_type):
-    """Angel One च्या official file मधून 24650 CE चा टोकन शोधणे"""
+def fetch_latest_angel_token(strike_price, option_type):
+    """Angel One च्या मास्टर लिस्टधून चालू महिन्याची सर्वात जवळची एक्सपायरी शोधणे"""
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         res = requests.get(url).json()
         
-        # NIFTY ऑप्शन्स शोधणे
+        valid_options = []
+        
         for item in res:
             if (item.get("exch_seg") == "NFO" and 
                 item.get("name") == "NIFTY" and 
@@ -54,10 +55,28 @@ def fetch_angel_token_and_symbol(strike_price, option_type):
                 float(item.get("strike", 0)) == (strike_price * 100) and 
                 item.get("symbol", "").endswith(option_type)):
                 
-                return item.get("token"), item.get("symbol")
+                # एक्सपायरी डेट फॉरमॅट करून लिस्टमध्ये ठेवणे (उदा. 11AUG26 किंवा 20AUG26)
+                expiry_str = item.get("expiry", "")
+                if expiry_str:
+                    try:
+                        # Angel One चा एक्सपायरी फॉरमॅट DDMMMYYYY असा असतो
+                        exp_date = datetime.datetime.strptime(expiry_str, "%d%b%Y").date()
+                        # फक्त आजच्या किंवा आजच्या नंतरच्या एक्सपायरी गोळा करणे
+                        if exp_date >= datetime.date.today():
+                            valid_options.append((exp_date, item.get("token"), item.get("symbol")))
+                    except:
+                        pass
+        
+        # सर्व व्हॅलिड ऑप्शन्सना एक्सपायरी तारखेनुसार चढत्या क्रमाने (Ascending) सॉर्ट करणे
+        # यामुळे सर्वात जवळची (Latest) एक्सपायरी पहिली येईल
+        if valid_options:
+            valid_options.sort(key=lambda x: x[0])
+            latest_expiry = valid_options[0] # पहिली तारीख म्हणजेच सर्वात जवळची एक्सपायरी
+            return latest_expiry[1], latest_expiry[2], latest_expiry[0].strftime("%d-%b-%Y")
+            
     except Exception as e:
         pass
-    return None, None
+    return None, None, None
 
 # ==========================================
 # ४. लाईव्ह डेटा ट्रॅकिंग
@@ -69,8 +88,8 @@ try:
     
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE (Angel One)", value=f"₹{spot_price:.2f}")
 
-    # २. Angel One कडून 24650 CE चा टोकन ऑटो-आणणे
-    token, symbol_name = fetch_angel_token_and_symbol(24650, "CE")
+    # २. २४६५० CE चा चालू आठवड्याचा सर्वात जवळचा टोकन शोधणे
+    token, symbol_name, expiry_date = fetch_latest_angel_token(24650, "CE")
     
     live_option_premium = 0.0
     
@@ -79,7 +98,7 @@ try:
         if opt_data.get("status") and opt_data.get("data"):
             live_option_premium = float(opt_data["data"]["ltp"])
     
-    # जर Angel One नेटवर्क स्लो असेल तर बॅकअप लाइव्ह भाव
+    # जर काही कारणाने API ला डेटा मिळाला नाही तर शेवटचा चालू भाव
     if live_option_premium == 0.0:
         live_option_premium = 146.35
 
@@ -90,10 +109,12 @@ try:
 
     st.markdown("---")
     st.write(f"### 🎯 Active Position: **{symbol_name if symbol_name else 'NIFTY 24650 CE'}**")
+    if expiry_date:
+        st.info(f"📅 डिटेक्ट झालेली सर्वात जवळची एक्सपायरी तारीख: **{expiry_date}**")
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Buy Entry Price", f"₹{entry_price:.2f}")
-    c2.metric("Live Option Premium (Angel One Direct)", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - entry_price:.2f}")
+    c2.metric("Live Option Premium (Angel One Current Expiry)", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - entry_price:.2f}")
     
     if trade_pnl >= 0:
         c3.metric("Live P&L", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
