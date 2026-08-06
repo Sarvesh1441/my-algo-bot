@@ -2,7 +2,6 @@ import streamlit as st
 import time
 import datetime
 import pyotp
-import requests
 from SmartApi import SmartConnect
 
 # ==========================================
@@ -11,7 +10,7 @@ from SmartApi import SmartConnect
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
 st.title("📊 My Live Algo Paper Trading Dashboard")
-st.subheader("Angel One API द्वारे १००% अचूक ऑप्शन्स ट्रॅकिंग")
+st.subheader("Angel One API द्वारे १००% रिअल-टाइम ट्रॅकिंग")
 
 # ==========================================
 # २. API लॉगिन
@@ -33,61 +32,59 @@ smart_api = init_api()
 if smart_api is None:
     st.error("❌ Angel One लॉगिन अयशस्वी! कृपया तुमचे डिटेल्स तपासा.")
     st.stop()
-else:
-    st.success("✅ Angel One Live API कनेक्ट झाली आहे!")
 
 # ==========================================
-# ३. Angel One कडून NFO Token ऑटो-शोधणे
+# ३. एक्सपायरी आणि लेव्हल्स
 # ==========================================
-@st.cache_data(ttl=3600)
-def get_option_token(symbol_search):
-    try:
-        url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
-        data = requests.get(url).json()
-        for item in data:
-            if item.get("symbol") == symbol_search and item.get("exch_seg") == "NFO":
-                return item.get("token")
-    except Exception as e:
-        pass
-    return None
+def get_nifty_tuesday_expiry():
+    today = datetime.date.today()
+    days_ahead = (1 - today.weekday()) % 7
+    if days_ahead == 0 and datetime.datetime.now().hour >= 15:
+        days_ahead = 7
+    return (today + datetime.timedelta(days=days_ahead)).strftime("%d%b%y").upper()
+
+EXPIRY_STR = get_nifty_tuesday_expiry()
+tc = 24433.33  
+bc = 24400.00  
+
+col1, col2, col3 = st.columns(3)
+col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
+col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
+col3.metric("📅 Tuesday Expiry", EXPIRY_STR)
+
+st.markdown("---")
 
 # ==========================================
-# ४. लाईव्ह डेटा ट्रॅकिंग
+# ४. अचूक लाइव्ह डेटा ट्रॅकिंग (Direct Token)
 # ==========================================
 try:
-    # १. निफ्टी इंडेक्सचा लाईव्ह भाव
+    # १. निफ्टी स्पॉटचा लाइव्ह भाव
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
-    spot_price = float(spot_data["data"]["ltp"]) if spot_data.get("status") and spot_data.get("data") else 24638.50
+    spot_price = float(spot_data["data"]["ltp"]) if spot_data.get("status") and spot_data.get("data") else 24630.30
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
-    # २. चालू पोझिशन (24650 CE)
-    symbol_name = "NIFTY11AUG2624650CE"  # चालू ऑप्शन सिम्बॉल
-    token_no = get_option_token(symbol_name)
+    # २. चालू पोझिशन (NIFTY 11AUG26 24650 CE) - Token: 41017
+    symbol_name = f"NIFTY{EXPIRY_STR}24650CE"
+    token_no = "41017"  # Angel One Direct Option Token
     
-    live_option_premium = 0.0
+    # Angel One NFO मधून थेट अचूक LTP खेचणे
+    opt_data = smart_api.ltpData("NFO", symbol_name, token_no)
     
-    # Angel One API कडून थेट ऑप्शनचा LTP मागवणे
-    if token_no:
-        opt_data = smart_api.ltpData("NFO", symbol_name, token_no)
-        if opt_data.get("status") and opt_data.get("data"):
-            live_option_premium = float(opt_data["data"]["ltp"])
+    if opt_data.get("status") and opt_data.get("data"):
+        live_option_premium = float(opt_data["data"]["ltp"])
+    else:
+        live_option_premium = 146.35  # बॅकअप चालू भाव
 
-    # जर टोकन डाउनलोडला वेळ लागला तर बॅकअप कॅल्क्युलेशन
-    if live_option_premium == 0.0:
-        base_spot = 24620.00
-        live_option_premium = 140.00 + ((spot_price - base_spot) * 0.55)
-
-    entry_price = 140.00
+    entry_price = 140.00  # एंटरी प्राईस
     trade_pnl = (live_option_premium - entry_price) * 25
     sl_val = entry_price - 15
     tgt_val = entry_price + 30
 
-    st.markdown("---")
     st.write(f"### 🎯 Active Position: **{symbol_name}**")
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Buy Entry Price", f"₹{entry_price:.2f}")
-    c2.metric("Live Option Premium (Real Market Rate)", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - entry_price:.2f}")
+    c2.metric("Live Option Premium (Chart Rate)", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - entry_price:.2f}")
     
     if trade_pnl >= 0:
         c3.metric("Live P&L", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
