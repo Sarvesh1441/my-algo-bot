@@ -130,7 +130,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि कॅन्डलस्टिक चार्ट
+# ४. मुख्य ट्रॅकिंग आणि वेळेसह बारीक कॅन्डलस्टिक चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -160,13 +160,13 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
-                # बारीक बॅकअप कॅन्डल्सची डेटा लिस्ट
+                # 🎯 २० सलग बारीक कॅन्डल्सचा बॅकअप डेटा जनरेट करणे
                 now_time = datetime.datetime.now()
                 base_data = []
-                for i in range(12, 0, -1):
+                for i in range(25, 0, -1):
                     t_str = (now_time - datetime.timedelta(seconds=i*10)).strftime("%H:%M:%S")
                     base_data.append({
-                        "Time": t_str, "Open": entry_premium, "High": entry_premium + 0.5, "Low": entry_premium - 0.5, "Close": entry_premium
+                        "Time": t_str, "Open": entry_premium, "High": entry_premium + 0.3, "Low": entry_premium - 0.3, "Close": entry_premium
                     })
                 
                 st.session_state.trade_type = trade_type
@@ -196,22 +196,29 @@ try:
         current_time_str = datetime.datetime.now().strftime("%H:%M:%S")
         current_ts = int(time.time())
         
-        if not st.session_state.ohlc_data:
-            st.session_state.ohlc_data = [{"Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium}]
-            st.session_state.last_candle_time = current_ts
-        else:
-            last_candle = st.session_state.ohlc_data[-1]
-            last_candle["High"] = float(max(last_candle["High"], live_option_premium))
-            last_candle["Low"] = float(min(last_candle["Low"], live_option_premium))
-            last_candle["Close"] = float(live_option_premium)
-            
-            if current_ts - st.session_state.last_candle_time >= 10:
+        # जर डेटा कमी असेल तर २५ कॅन्डल्सचा संच तयार करणे
+        if not st.session_state.ohlc_data or len(st.session_state.ohlc_data) < 10:
+            now_time = datetime.datetime.now()
+            st.session_state.ohlc_data = []
+            for i in range(25, 0, -1):
+                t_str = (now_time - datetime.timedelta(seconds=i*10)).strftime("%H:%M:%S")
                 st.session_state.ohlc_data.append({
-                    "Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                    "Time": t_str, "Open": live_option_premium, "High": live_option_premium + 0.3, "Low": live_option_premium - 0.3, "Close": live_option_premium
                 })
-                st.session_state.last_candle_time = current_ts
+            st.session_state.last_candle_time = current_ts
 
-        if len(st.session_state.ohlc_data) > 35:
+        last_candle = st.session_state.ohlc_data[-1]
+        last_candle["High"] = float(max(last_candle["High"], live_option_premium))
+        last_candle["Low"] = float(min(last_candle["Low"], live_option_premium))
+        last_candle["Close"] = float(live_option_premium)
+        
+        if current_ts - st.session_state.last_candle_time >= 10:
+            st.session_state.ohlc_data.append({
+                "Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+            })
+            st.session_state.last_candle_time = current_ts
+
+        if len(st.session_state.ohlc_data) > 30:
             st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
@@ -237,7 +244,7 @@ try:
         
         st.markdown("---")
         
-        # 🕯️ बारीक बॉडी आणि सुईसारखी पातळ वाती (Thin Wicks)
+        # 🕯️ **अत्यंत बारीक कॅन्डल्स आणि अचूक लाईव्ह टाइम लेआऊट**
         st.subheader("🕯️ Live Option Premium Candlestick Chart")
         df_candles = pd.DataFrame(st.session_state.ohlc_data)
         
@@ -247,27 +254,29 @@ try:
             high=df_candles['High'],
             low=df_candles['Low'],
             close=df_candles['Close'],
-            increasing=dict(line=dict(color='#26a69a', width=1.2), fillcolor='#26a69a'),
-            decreasing=dict(line=dict(color='#ef5350', width=1.2), fillcolor='#ef5350'),
-            whiskerwidth=0.0  
+            increasing=dict(line=dict(color='#26a69a', width=1), fillcolor='#26a69a'),
+            decreasing=dict(line=dict(color='#ef5350', width=1), fillcolor='#ef5350'),
+            whiskerwidth=0.0
         )])
         
         fig.update_layout(
             xaxis_rangeslider_visible=False,
-            height=420,
-            margin=dict(l=20, r=40, t=10, b=20),
+            height=400,
+            margin=dict(l=20, r=40, t=10, b=50),
             paper_bgcolor='#ffffff',  
             plot_bgcolor='#ffffff',
-            bargap=0.65, 
+            bargap=0.75, # 🎯 ७५% गॅप ठेवली आहे ज्यामुळे कॅन्डल्स एकदम सुबक, बारीक दिसतील
             xaxis=dict(
                 gridcolor='#f0f3fa', 
                 type='category', 
-                tickfont=dict(color='#787b86', size=11)
+                tickfont=dict(color='#333333', size=10),
+                tickangle=-45, # 🎯 वेळेचे आकडे तिरके आणि नीट वाचता येण्यासारखे दिसायला
+                showticklabels=True
             ),
             yaxis=dict(
                 gridcolor='#f0f3fa', 
                 side="right",    
-                tickfont=dict(color='#787b86', size=11),
+                tickfont=dict(color='#333333', size=10),
                 autorange=True  
             )
         )
