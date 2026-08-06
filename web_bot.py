@@ -8,26 +8,20 @@ import json
 import os
 
 # ==========================================
-# १. पेज, फाईल आणि कॅपिटल सेटिंग्ज (Risk Management)
+# १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
 # ==========================================
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
-# 💰 इथे तुमचे एकूण कॅपिटल टाका (उदा. ५०००० किंवा १०००००)
-TOTAL_CAPITAL = 100000  
-
-# 🛡️ रिस्क मॅनेजमेंट: एका ट्रेडमध्ये कॅपिटलच्या फक्त ५% रिस्क घेणे
+STATE_FILE = "trade_state.json"
+TOTAL_CAPITAL = 100000  # तुमचे एकूण कॅपिटल
 RISK_PER_TRADE = TOTAL_CAPITAL * 0.05  
-SL_POINTS = 15
-NIFTY_LOT_SIZE = 65  # १ लॉट = ६५ क्वांटिटी
+SL_POINTS = 15  # सुरुवातीचा मूळ स्टॉपलॉस १५ पॉईंट्स
+NIFTY_LOT_SIZE = 65  
 
-# 🎯 कॅपिटलनुसार ऑटोमॅटिक लॉट साईझ कॅल्क्युलेशन
 calculated_lots = int(RISK_PER_TRADE / (SL_POINTS * NIFTY_LOT_SIZE))
 if calculated_lots < 1:
-    calculated_lots = 1  # कमीत कमी १ लॉट
-
+    calculated_lots = 1
 LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
-
-STATE_FILE = "trade_state.json"
 
 def save_state(state_data):
     with open(STATE_FILE, "w") as f:
@@ -45,11 +39,14 @@ def load_state():
         "premium_entry": 0.0, 
         "entry_spot_price": 0.0, 
         "total_day_pnl": 0.0,
-        "day_over": False
+        "day_over": False,
+        "current_sl": 0.0,
+        "current_tgt": 0.0,           # डायनॅमिक टार्गेट ट्रॅक करण्यासाठी
+        "sl_trailed_to_cost": False  
     }
 
-st.title("📊 My Live Capital-Based Algo Dashboard")
-st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | 🎯 ऑटो लॉट साईझ: {calculated_lots} Lots (Qty: {LOT_SIZE})")
+st.title("📊 My Live Algo Trailing Dashboard")
+st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | {calculated_lots} Lots | 🎯 डायनॅमिक १:३ टार्गेट सिस्टीम")
 
 # ==========================================
 # २. API लॉगिन
@@ -69,26 +66,22 @@ def init_api():
 smart_api = init_api()
 
 if smart_api is None:
-    st.error("❌ Angel One लॉगिन अयशस्वी! कृपया तुमचे डिटेल्स तपासा.")
+    st.error("❌ Angel One लॉगिन अयशस्वी!")
     st.stop()
 
 # ==========================================
-# ३. सर्वात जवळची एक्सपायरी शोधणे
+# ३. एक्सपायरी आणि टोकन शोधणे
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_latest_angel_token(strike_price, option_type):
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         res = requests.get(url).json()
-        
         valid_options = []
         for item in res:
-            if (item.get("exch_seg") == "NFO" and 
-                item.get("name") == "NIFTY" and 
-                item.get("instrumenttype") == "OPTIDX" and 
-                float(item.get("strike", 0)) == (strike_price * 100) and 
+            if (item.get("exch_seg") == "NFO" and item.get("name") == "NIFTY" and 
+                item.get("instrumenttype") == "OPTIDX" and float(item.get("strike", 0)) == (strike_price * 100) and 
                 item.get("symbol", "").endswith(option_type)):
-                
                 expiry_str = item.get("expiry", "")
                 if expiry_str:
                     try:
@@ -97,11 +90,9 @@ def fetch_latest_angel_token(strike_price, option_type):
                             valid_options.append((exp_date, item.get("token"), item.get("symbol")))
                     except:
                         pass
-        
         if valid_options:
             valid_options.sort(key=lambda x: x[0])
-            latest_expiry = valid_options[0] 
-            return latest_expiry[1], latest_expiry[2], latest_expiry[0].strftime("%d-%b-%Y")
+            return valid_options[0][1], valid_options[0][2], valid_options[0][0].strftime("%d-%b-%Y")
     except:
         pass
     return None, None, None
@@ -112,83 +103,54 @@ bc = 24400.00
 col1, col2 = st.columns(2)
 col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
-
 st.markdown("---")
 
-# पोझिशन स्टेट लोड करणे
+# स्टेट लोड करणे
 saved_data = load_state()
 if 'in_position' not in st.session_state:
-    st.session_state.in_position = saved_data.get("in_position", False)
-    st.session_state.trade_type = saved_data.get("trade_type", None)
-    st.session_state.selected_option = saved_data.get("selected_option", "")
-    st.session_state.option_token = saved_data.get("option_token", "")
-    st.session_state.premium_entry = saved_data.get("premium_entry", 0.0)
-    st.session_state.entry_spot_price = saved_data.get("entry_spot_price", 0.0)
-    st.session_state.total_day_pnl = saved_data.get("total_day_pnl", 0.0)
-    st.session_state.day_over = saved_data.get("day_over", False)
+    for key, val in saved_data.items():
+        st.session_state[key] = val
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग
+# ४. मुख्य डेटा ट्रॅकिंग आणि सुधारित लॉजिक
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
     spot_price = float(spot_data["data"]["ltp"]) if spot_data.get("status") and spot_data.get("data") else 24630.00
-    
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
     if st.session_state.day_over:
-        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! नवीन एन्ट्री ब्लॉक केली आहे. | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा (Reset)"):
+        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा"):
             st.session_state.in_position = False
-            st.session_state.trade_type = None
-            st.session_state.selected_option = ""
-            st.session_state.option_token = ""
-            st.session_state.premium_entry = 0.0
-            st.session_state.entry_spot_price = 0.0
-            st.session_state.total_day_pnl = 0.0
             st.session_state.day_over = False
+            st.session_state.total_day_pnl = 0.0
+            st.session_state.sl_trailed_to_cost = False
             save_state(dict(st.session_state))
             st.rerun()
         st.stop()
 
     # --- Waiting Mode ---
     if not st.session_state.in_position:
-        st.info(f"⏳ बॉट ब्रेकआऊटची वाट पाहत आहे... | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        st.info(f"⏳ बॉट ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # 🟢 CALL TRIGGER
-        if spot_price > tc:
+        if spot_price > tc or spot_price < bc:
+            trade_type = "CE" if spot_price > tc else "PE"
             atm_strike = round(spot_price / 50) * 50
-            itm_strike = atm_strike - 50  
-            token, symbol_name, expiry_date = fetch_latest_angel_token(itm_strike, "CE")
+            itm_strike = atm_strike - 50 if trade_type == "CE" else atm_strike + 50
             
+            token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
             if token and symbol_name:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
-                st.session_state.trade_type = "CE"
+                st.session_state.trade_type = trade_type
                 st.session_state.selected_option = symbol_name
                 st.session_state.option_token = token
-                st.session_state.entry_spot_price = spot_price
                 st.session_state.premium_entry = entry_premium
-                st.session_state.in_position = True
-                save_state(dict(st.session_state))
-                st.rerun()
-            
-        # 🔴 PUT TRIGGER
-        elif spot_price < bc:
-            atm_strike = round(spot_price / 50) * 50
-            itm_strike = atm_strike + 50  
-            token, symbol_name, expiry_date = fetch_latest_angel_token(itm_strike, "PE")
-            
-            if token and symbol_name:
-                opt_data = smart_api.ltpData("NFO", symbol_name, token)
-                entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
-                
-                st.session_state.trade_type = "PE"
-                st.session_state.selected_option = symbol_name
-                st.session_state.option_token = token
-                st.session_state.entry_spot_price = spot_price
-                st.session_state.premium_entry = entry_premium
+                st.session_state.current_sl = entry_premium - SL_POINTS  # मूळ SL (-15)
+                st.session_state.current_tgt = entry_premium + 30        # मूळ प्राथमिक टार्गेट
+                st.session_state.sl_trailed_to_cost = False
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -202,46 +164,59 @@ try:
                 live_option_premium = float(opt_data["data"]["ltp"])
         
         if live_option_premium == 0.0:
-            if st.session_state.trade_type == "CE":
-                spot_change = spot_price - st.session_state.entry_spot_price
-            else:
-                spot_change = st.session_state.entry_spot_price - spot_price
-            live_option_premium = st.session_state.premium_entry + (spot_change * 0.60)
+            live_option_premium = st.session_state.premium_entry
+
+        # 🔄 नियम: जसा प्रीमियम २० पॉईंट्स प्लस जाईल, SL कॉस्टवर येईल आणि टार्गेट तिथून १:३ (४५ पॉईंट्स) होईल.
+        if not st.session_state.sl_trailed_to_cost:
+            if (live_option_premium - st.session_state.premium_entry) >= 20:
+                st.session_state.current_sl = st.session_state.premium_entry  # SL Cost to Cost
+                st.session_state.current_tgt = st.session_state.premium_entry + 65  # २० आधीचे + ४५ (१:३) = ६५ पॉईंट्स टार्गेट!
+                st.session_state.sl_trailed_to_cost = True
+                save_state(dict(st.session_state))
 
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
-        sl_val = st.session_state.premium_entry - SL_POINTS
-        tgt_val = st.session_state.premium_entry + (SL_POINTS * 2)
 
-        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}** ({calculated_lots} Lots - Qty: {LOT_SIZE})")
+        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
         
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
-        c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - st.session_state.premium_entry:.2f}")
+        c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
         
+        sl_status = " (सुरक्षित 🔒)" if st.session_state.sl_trailed_to_cost else " (मूळ SL ⚠️)"
+        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_status)
+        
+        tgt_status = " (१:३ वाढवलेलं 🚀)" if st.session_state.sl_trailed_to_cost else " (प्राथमिक ⏳)"
+        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_status)
+        
+        st.markdown("---")
         if trade_pnl >= 0:
-            c3.metric("Live P&L", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
+            st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
         else:
-            c3.metric("Live P&L", f"-₹{abs(trade_pnl):.2f}", delta=f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
-        
-        st.write(f"⚠️ **Stoploss (SL):** ₹{sl_val:.2f} | 🎯 **Target (TGT):** ₹{tgt_val:.2f}")
+            st.metric("Live Profit / Loss", f"-₹{abs(trade_pnl):.2f}", delta=f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
+            
         st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        if live_option_premium >= tgt_val:
+        # Target Check
+        if live_option_premium >= st.session_state.current_tgt:
             st.balloons()
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
             st.session_state.day_over = True
             save_state(dict(st.session_state))
-            st.success(f"🎯 TARGET HIT! नफा बुक झाला: ₹{trade_pnl:.2f}")
+            st.success(f"🎯 BIG TARGET HIT (1:3)! नफा बुक: ₹{trade_pnl:.2f}")
             time.sleep(2)
             st.rerun()
             
-        elif live_option_premium <= sl_val:
+        # SL Check
+        elif live_option_premium <= st.session_state.current_sl:
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
             st.session_state.day_over = True
             save_state(dict(st.session_state))
-            st.error(f"🛑 STOPLOSS HIT! तोटा बुक झाला: ₹{trade_pnl:.2f}")
+            if st.session_state.sl_trailed_to_cost:
+                st.info(f"🛑 Cost-to-Cost SL Hit! तोटा टळला, ट्रेड सुरक्षित बंद: ₹{trade_pnl:.2f}")
+            else:
+                st.error(f"🛑 STOPLOSS HIT! मूळ तोटा बुक झाला: ₹{trade_pnl:.2f}")
             time.sleep(2)
             st.rerun()
 
