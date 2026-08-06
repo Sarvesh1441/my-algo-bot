@@ -6,7 +6,8 @@ import requests
 from SmartApi import SmartConnect
 import json
 import os
-import streamlit.components.v1 as components
+import pandas as pd
+import plotly.graph_objects as go
 
 # ==========================================
 # १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
@@ -114,7 +115,8 @@ defaults = {
     "day_over": False,
     "current_sl": 0.0,
     "current_tgt": 0.0,
-    "sl_trailed_to_cost": False
+    "sl_trailed_to_cost": False,
+    "ohlc_data": [] 
 }
 
 for key, default_val in defaults.items():
@@ -122,7 +124,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग
+# ४. मुख्य डेटा ट्रॅकिंग आणि एरर-फ्री अंतर्गत चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -152,6 +154,8 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
+                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                
                 st.session_state.trade_type = trade_type
                 st.session_state.selected_option = symbol_name
                 st.session_state.option_token = token
@@ -159,6 +163,9 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
+                st.session_state.ohlc_data = [{
+                    "Time": current_time, "Open": entry_premium, "High": entry_premium + 1, "Low": entry_premium - 1, "Close": entry_premium
+                }]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -173,6 +180,28 @@ try:
         
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
+
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        # सुरक्षित कॅन्डल डेटा मेकिंग
+        if not st.session_state.ohlc_data or not isinstance(st.session_state.ohlc_data[0], dict) or "high" in st.session_state.ohlc_data[0]:
+            st.session_state.ohlc_data = [{
+                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+            }]
+        else:
+            last_candle = st.session_state.ohlc_data[-1]
+            last_candle["High"] = max(last_candle.get("High", live_option_premium), live_option_premium)
+            last_candle["Low"] = min(last_candle.get("Low", live_option_premium), live_option_premium)
+            last_candle["Close"] = live_option_premium
+            
+            # दर १० सेकंदांनी नवी कॅन्डल ओळीने जोडणे
+            if int(time.time()) % 10 == 0:
+                st.session_state.ohlc_data.append({
+                    "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                })
+
+        if len(st.session_state.ohlc_data) > 30:
+            st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
             if (live_option_premium - st.session_state.premium_entry) >= 20:
@@ -197,33 +226,41 @@ try:
         
         st.markdown("---")
         
-        # 🚀 TradingView Live Chart Widget (NSE:NIFTY Spot)
-        st.subheader("🕯️ Live TradingView Chart (NIFTY 50)")
+        # 🕯️ **१००% स्वदेशी एरर-फ्री कॅन्डलस्टिक चार्ट (ट्रेडिंगव्ह्यू स्टाईल)**
+        st.subheader("🕯️ Live Premium Candlestick Chart")
+        df_candles = pd.DataFrame(st.session_state.ohlc_data)
         
-        tv_widget_html = """
-        <div class="tradingview-widget-container">
-          <div id="tradingview_chart"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-          <script type="text/javascript">
-          new TradingView.widget({
-            "width": "100%",
-            "height": 450,
-            "symbol": "NSE:NIFTY",
-            "interval": "5",
-            "timezone": "Asia/Kolkata",
-            "theme": "light",
-            "style": "1",
-            "locale": "in",
-            "toolbar_bg": "#f1f3f6",
-            "enable_publishing": false,
-            "allow_symbol_change": true,
-            "container_id": "tradingview_chart"
-          });
-          </script>
-        </div>
-        """
+        fig = go.Figure(data=[go.Candlestick(
+            x=df_candles['Time'],
+            open=df_candles['Open'],
+            high=df_candles['High'],
+            low=df_candles['Low'],
+            close=df_candles['Close'],
+            increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
+            increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350',
+            whiskerwidth=0.4
+        )])
         
-        components.html(tv_widget_html, height=470, scrolling=False)
+        fig.update_layout(
+            xaxis_rangeslider_visible=False,
+            height=450,
+            margin=dict(l=20, r=40, t=10, b=20),
+            paper_bgcolor='#ffffff',  
+            plot_bgcolor='#ffffff',
+            xaxis=dict(
+                gridcolor='#f0f3fa', 
+                tickfont=dict(color='#787b86', size=11),
+                type='category'  # कॅन्डल्स ओळीने सुबक दिसण्यासाठी
+            ),
+            yaxis=dict(
+                gridcolor='#f0f3fa', 
+                side="right",    
+                tickfont=dict(color='#787b86', size=11),
+                autorange=True
+            )
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
         if trade_pnl >= 0:
             st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
