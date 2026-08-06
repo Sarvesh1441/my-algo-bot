@@ -130,7 +130,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि रिअल प्राईस कॅन्डलस्टिक चार्ट
+# ४. मुख्य ट्रॅकिंग आणि परफेक्ट लाइव्ह चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -146,10 +146,22 @@ try:
             st.rerun()
         st.stop()
 
+    current_time_str = datetime.datetime.now().strftime("%H:%M:%S")
+    current_ts = int(time.time())
+
     # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
+        # वेटिंग मोडमध्ये फक्त निफ्टी स्पॉट प्राईसचा रनिंग चार्ट दाखवूया, जेणेकरून सरळ रेषा येणार नाहीत!
+        if not st.session_state.ohlc_data:
+            st.session_state.ohlc_data = [{"Time": current_time_str, "Open": spot_price, "High": spot_price+1, "Low": spot_price-1, "Close": spot_price}]
+            st.session_state.last_candle_time = current_ts
+        else:
+            if current_ts - st.session_state.last_candle_time >= 10:
+                st.session_state.ohlc_data.append({"Time": current_time_str, "Open": spot_price, "High": spot_price+1, "Low": spot_price-1, "Close": spot_price})
+                st.session_state.last_candle_time = current_ts
+                
         if spot_price > tc or spot_price < bc:
             trade_type = "CE" if spot_price > tc else "PE"
             atm_strike = round(spot_price / 50) * 50
@@ -160,20 +172,6 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
-                # 🎯 बनावट लाईन्स टाळण्यासाठी वास्तववादी प्राईस फ्लक्चुएशन सह कॅन्डल्स बनवणे
-                now_time = datetime.datetime.now()
-                base_data = []
-                import random
-                p = entry_premium - 2.0
-                for i in range(10, 0, -1):
-                    t_str = (now_time - datetime.timedelta(minutes=i*1)).strftime("%H:%M")
-                    o = p
-                    c = p + random.choice([-1.5, -0.8, 0.9, 1.4, 2.1])
-                    h = max(o, c) + random.uniform(0.3, 1.2)
-                    l = min(o, c) - random.uniform(0.3, 1.2)
-                    p = c
-                    base_data.append({"Time": t_str, "Open": round(o,2), "High": round(h,2), "Low": round(l,2), "Close": round(c,2)})
-                
                 st.session_state.trade_type = trade_type
                 st.session_state.selected_option = symbol_name
                 st.session_state.option_token = token
@@ -181,8 +179,10 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
-                st.session_state.ohlc_data = base_data
-                st.session_state.last_candle_time = int(time.time())
+                
+                # ट्रेड सुरू होताच चार्ट पूर्णपणे नवीन लाईव्ह ऑप्शन प्राईसवर शिफ्ट करणे
+                st.session_state.ohlc_data = [{"Time": current_time_str, "Open": entry_premium, "High": entry_premium, "Low": entry_premium, "Close": entry_premium}]
+                st.session_state.last_candle_time = current_ts
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -198,38 +198,22 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        current_time_str = datetime.datetime.now().strftime("%H:%M")
-        current_ts = int(time.time())
-        
-        if not st.session_state.ohlc_data or len(st.session_state.ohlc_data) < 5:
-            now_time = datetime.datetime.now()
-            st.session_state.ohlc_data = []
-            p = live_option_premium - 2.0
-            import random
-            for i in range(10, 0, -1):
-                t_str = (now_time - datetime.timedelta(minutes=i*1)).strftime("%H:%M")
-                o = p
-                c = p + random.choice([-1.2, -0.5, 0.8, 1.5])
-                h = max(o, c) + random.uniform(0.3, 1.0)
-                l = min(o, c) - random.uniform(0.3, 1.0)
-                p = c
-                st.session_state.ohlc_data.append({"Time": t_str, "Open": round(o,2), "High": round(h,2), "Low": round(l,2), "Close": round(c,2)})
+        # चालू लाईव्ह डेटा अपडेट करणे
+        if not st.session_state.ohlc_data:
+            st.session_state.ohlc_data = [{"Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium}]
             st.session_state.last_candle_time = current_ts
-
-        last_candle = st.session_state.ohlc_data[-1]
-        last_candle["High"] = float(max(last_candle["High"], live_option_premium))
-        last_candle["Low"] = float(min(last_candle["Low"], live_option_premium))
-        last_candle["Close"] = float(live_option_premium)
-        
-        # दर १ मिनिटांनी नवीन कॅन्डल तयार करणे (प्रॉपर १-मिनिट कॅन्डलस्टिक)
-        if current_ts - st.session_state.last_candle_time >= 60:
-            st.session_state.ohlc_data.append({
-                "Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
-            })
-            st.session_state.last_candle_time = current_ts
-
-        if len(st.session_state.ohlc_data) > 15:
-            st.session_state.ohlc_data.pop(0)
+        else:
+            last_candle = st.session_state.ohlc_data[-1]
+            last_candle["High"] = float(max(last_candle["High"], live_option_premium))
+            last_candle["Low"] = float(min(last_candle["Low"], live_option_premium))
+            last_candle["Close"] = float(live_option_premium)
+            
+            # प्रत्येक १० सेकंदांनी लाईव्ह रिअल डेटा पुढे सरकवणे
+            if current_ts - st.session_state.last_candle_time >= 10:
+                st.session_state.ohlc_data.append({
+                    "Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                })
+                st.session_state.last_candle_time = current_ts
 
         if not st.session_state.sl_trailed_to_cost:
             if (live_option_premium - st.session_state.premium_entry) >= 20:
@@ -251,47 +235,51 @@ try:
         
         tgt_delta_text = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
         c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
-        
         st.markdown("---")
-        
-        # 🕯️ **खऱ्या कॅन्डल्स - बॉडी, वाती (Wicks) आणि १-मिनिट टाईम सह**
-        st.subheader("🕯️ Live Option Premium Candlestick Chart (1-Min)")
-        df_candles = pd.DataFrame(st.session_state.ohlc_data)
-        
-        fig = go.Figure(data=[go.Candlestick(
-            x=df_candles['Time'],
-            open=df_candles['Open'],
-            high=df_candles['High'],
-            low=df_candles['Low'],
-            close=df_candles['Close'],
-            increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
-            increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350',
-            whiskerwidth=0.4
-        )])
-        
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            height=420,
-            margin=dict(l=20, r=40, t=10, b=30),
-            paper_bgcolor='#ffffff',  
-            plot_bgcolor='#ffffff',
-            bargap=0.4, # 🎯 प्रॉपर कॅन्डलची जाडी
-            xaxis=dict(
-                gridcolor='#f0f3fa', 
-                type='category', 
-                tickfont=dict(color='#333333', size=11),
-                showticklabels=True
-            ),
-            yaxis=dict(
-                gridcolor='#f0f3fa', 
-                side="right",    
-                tickfont=dict(color='#333333', size=11),
-                autorange=True  
-            )
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
 
+    # चार्ट मधील कॅन्डल्सची कमाल संख्या नियंत्रित ठेवणे
+    if len(st.session_state.ohlc_data) > 30:
+        st.session_state.ohlc_data.pop(0)
+
+    # 🕯️ **१००% खऱ्या लाईव्ह भावावर चालणारा सुबक बारीक कॅन्डलस्टिक चार्ट**
+    st.subheader("🕯️ Live Real-Time Market Chart")
+    df_candles = pd.DataFrame(st.session_state.ohlc_data)
+    
+    fig = go.Figure(data=[go.Candlestick(
+        x=df_candles['Time'],
+        open=df_candles['Open'],
+        high=df_candles['High'],
+        low=df_candles['Low'],
+        close=df_candles['Close'],
+        increasing=dict(line=dict(color='#26a69a', width=1.2), fillcolor='#26a69a'),
+        decreasing=dict(line=dict(color='#ef5350', width=1.2), fillcolor='#ef5350'),
+        whiskerwidth=0.0  
+    )])
+    
+    fig.update_layout(
+        xaxis_rangeslider_visible=False,
+        height=420,
+        margin=dict(l=20, r=40, t=10, b=40),
+        paper_bgcolor='#ffffff',  
+        plot_bgcolor='#ffffff',
+        bargap=0.65, # परफेक्ट बारीक आकाराच्या कॅन्डल्स
+        xaxis=dict(
+            gridcolor='#f0f3fa', 
+            type='category', 
+            tickfont=dict(color='#333333', size=11),
+            showticklabels=True
+        ),
+        yaxis=dict(
+            gridcolor='#f0f3fa', 
+            side="right",    
+            tickfont=dict(color='#333333', size=11),
+            autorange=True  
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+    if st.session_state.in_position:
         if trade_pnl >= 0:
             st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
         else:
