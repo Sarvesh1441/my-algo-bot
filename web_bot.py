@@ -140,7 +140,7 @@ try:
     if st.session_state.day_over:
         st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी रीसेट करा"):
-            for k, v defaults.items():
+            for k, v in defaults.items():  # 🎯 100% फिक्स: 'in' जोडले आहे
                 st.session_state[k] = v
             save_state(dict(st.session_state))
             st.rerun()
@@ -152,7 +152,7 @@ try:
     if not st.session_state.in_position:
         st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # 🎯 बॅक डेटा फिक्स: डावीकडील मोकळी जागा भरण्यासाठी सलग ३५ कॅन्डल्सचा बॅक डेटा तयार करणे
+        # डावीकडील मोकळी जागा भरण्यासाठी ३५ कॅन्डल्सचा बॅक डेटा तयार करणे
         if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
             st.session_state.ohlc_data = []
             p = spot_price - 8.0
@@ -199,7 +199,7 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 
-                # 🎯 ऑप्शन ट्रेड सुरू होताच मागील ३५ कॅन्डल्सचा बॅक डेटा ऑप्शनच्या भावावर शिफ्ट करणे
+                # ऑप्शन चार्ट सुरू होताच डावीकडील जागा बॅक डेटाने भरणे
                 st.session_state.ohlc_data = []
                 p = entry_premium - 4.0
                 for i in range(35, 0, -1):
@@ -281,8 +281,8 @@ try:
     if len(st.session_state.ohlc_data) > 45:
         st.session_state.ohlc_data.pop(0)
 
-    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट इंजिन**
-    st.subheader("🕯 Tangible TradingView Interface")
+    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट विजेट**
+    st.subheader("🕯️ Live TradingView Standalone Chart")
     
     tv_json_data = json.dumps(st.session_state.ohlc_data)
     
@@ -319,7 +319,7 @@ try:
             const chartData = {tv_json_data};
             candleSeries.setData(chartData);
             
-            // 🎯 ऑटोमॅटिकली चार्टला संपूर्ण स्क्रीन व्यापण्यासाठी फिट करणे (No Sidebar Push)
+            // चार्टला पूर्ण स्क्रीनवर फिट करणे (No Side Push)
             chart.timeScale().fitContent();
             
             window.addEventListener('resize', () => {{
