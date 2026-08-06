@@ -122,7 +122,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि रिअल चार्ट
+# ४. मुख्य डेटा ट्रॅकिंग
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -197,20 +197,18 @@ try:
         
         st.markdown("---")
         
-        # 🚀 TradingView Chart Widget
-        st.subheader("🕯️ Live TradingView Chart")
+        # 🚀 TradingView Live Chart Widget (NSE:NIFTY Spot)
+        st.subheader("🕯️ Live TradingView Chart (NIFTY 50)")
         
-        tv_symbol = f"NSE:{st.session_state.selected_option}"
-        
-        tv_widget_html = f"""
+        tv_widget_html = """
         <div class="tradingview-widget-container">
           <div id="tradingview_chart"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
-          new TradingView.widget({{
+          new TradingView.widget({
             "width": "100%",
             "height": 450,
-            "symbol": "{tv_symbol}",
+            "symbol": "NSE:NIFTY",
             "interval": "5",
             "timezone": "Asia/Kolkata",
             "theme": "light",
@@ -220,7 +218,7 @@ try:
             "enable_publishing": false,
             "allow_symbol_change": true,
             "container_id": "tradingview_chart"
-          }});
+          });
           </script>
         </div>
         """
