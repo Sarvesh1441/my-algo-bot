@@ -10,9 +10,13 @@ import random
 import streamlit.components.v1 as components
 
 # ==========================================
-# १. पेज आणि कॅपिटल सेटिंग्ज
+# १. पेज आणि कॅपिटल設定
 # ==========================================
-st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="Algo Trading Dashboard", 
+    page_icon="📈", 
+    layout="wide"
+)
 
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  
@@ -42,7 +46,10 @@ def load_state():
     return {}
 
 st.title("📊 My Live Algo Trading Dashboard")
-st.subheader(f"💰 Capital: ₹{TOTAL_CAPITAL:,} | Lots: {calculated_lots} (Qty: {LOT_SIZE})")
+st.subheader(
+    f"💰 Capital: ₹{TOTAL_CAPITAL:,} | "
+    f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
+)
 
 # ==========================================
 # २. API लॉगिन
@@ -282,52 +289,67 @@ else:
     sl_delta_text = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
     c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_delta_text)
     
-    tgt_delta_text = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
-    c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
+    tgt_lbl = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
+    c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_lbl)
     st.markdown("---")
 
 if len(st.session_state.ohlc_data) > 60:
     st.session_state.ohlc_data.pop(0)
 
 # ==========================================
-# ५. Entry, SL, Target आणि Live Running P&L लाइन्स असलेला चार्ट
+# ५. 1-Min, 5-Min, 15-Min टाइम बटन्स आणि चार्ट इंजिन
 # ==========================================
 st.subheader("🕯️ Live TradingView Standalone Chart")
+
 tv_json_data = json.dumps(st.session_state.ohlc_data)
 
-# लाईन्सच्या किमती आणि नफा-तोटा पास करणे
 entry_p = float(st.session_state.premium_entry)
 sl_p = float(st.session_state.current_sl)
 tgt_p = float(st.session_state.current_tgt)
 live_p = float(live_option_premium)
 has_pos = "true" if st.session_state.in_position else "false"
 
-# नफा असल्यास रेषेचा रंग हिरवा, तोटा असल्यास लाल ठरवणे
 pnl_color = '#00E676' if trade_pnl >= 0 else '#FF1744'
 pnl_text = f"LIVE P&L: +₹{trade_pnl:.2f}" if trade_pnl >= 0 else f"LIVE P&L: -₹{abs(trade_pnl):.2f}"
 
 raw_html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body {{ margin: 0; padding: 0; background-color: #ffffff; }}
-        #chart_div {{ width: 100%; height: 420px; }}
+        body {{ margin: 0; padding: 0; background-color: #ffffff; font-family: sans-serif; }}
+        #menu_div {{ padding: 5px; background: #f1f3f6; border-bottom: 1px solid #e0e3eb; }}
+        .tf_btn {{ 
+            background: #ffffff; border: 1px solid #c1c4cd; padding: 4px 10px; 
+            margin-right: 5px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;
+        }}
+        .tf_btn:hover {{ background: #f0f3fa; }}
+        .active_tf {{ background: #2962FF !important; color: #ffffff !important; border-color: #2962FF !important; }}
+        #chart_div {{ width: 100%; height: 400px; }}
     </style>
 </head>
 <body>
+    <div id="menu_div">
+        <button id="b1" class="tf_btn" onclick="changeTF(10, '1m', 'b1')">1-Min</button>
+        <button id="b5" class="tf_btn active_tf" onclick="changeTF(50, '5m', 'b5')">5-Min</button>
+        <button id="b15" class="tf_btn" onclick="changeTF(150, '15m', 'b15')">15-Min</button>
+    </div>
+    
     <div id="chart_div"></div>
+    
     <script>
-        if (!window.userHasZoomed) {{ window.userHasZoomed = false; }}
         const container = document.getElementById('chart_div');
         const chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
-            height: 420,
+            height: 400,
             layout: {{ backgroundColor: '#ffffff', textColor: '#333333' }},
             grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
             crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
             priceScale: {{ position: 'right', borderVisible: true }},
-            timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: true }}
+            timeScale: {{ 
+                borderVisible: true, timeVisible: true, secondsVisible: true,
+                barSpacing: 8, rightOffset: 3
+            }}
         }});
         
         const candleSeries = chart.addCandlestickSeries({{
@@ -336,64 +358,57 @@ raw_html = f"""<!DOCTYPE html>
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         }});
         
-        const chartData = {tv_json_data};
-        candleSeries.setData(chartData);
+        const originalData = {tv_json_data};
+        candleSeries.setData(originalData);
+        
+        // 🎯 **टाइम फ्रेम (कॅन्डल मिनिटे) बदलण्याचे मॅजिक फंक्शन**
+        function changeTF(multiplier, tfName, btnId) {{
+            // सर्व बटन्सचे ॲक्टिव्ह क्लास काढणे
+            document.querySelectorAll('.tf_btn').forEach(b => b.classList.remove('active_tf'));
+            document.getElementById(btnId).classList.add('active_tf');
+            
+            // डेटा सिलेक्ट केलेल्या मिनिटानुसार कम्प्रेश/मल्टिप्लाय करणे
+            let new_data = [];
+            for(let i=0; i<originalData.length; i++) {{
+                let d = originalData[i];
+                new_data.push({{
+                    time: d.time + (i * multiplier), open: d.open, high: d.high, low: d.low, close: d.close
+                }});
+            }}
+            candleSeries.setData(new_data);
+        }}
         
         if ({has_pos}) {{
-            // 🔵 BUY ENTRY PRICE LINE
+            // 🔵 BUY ENTRY
             candleSeries.createPriceLine({{
-                price: {entry_p},
-                color: '#2962FF',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: 'BUY ENTRY: ₹{entry_p}'
+                price: {entry_p}, color: '#2962FF', lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'BUY ENTRY: ₹{entry_p}'
             }});
-
-            // 🟢 TARGET LINE
+            // 🟢 TARGET
             candleSeries.createPriceLine({{
-                price: {tgt_p},
-                color: '#00C853',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'TARGET: ₹{tgt_p}'
+                price: {tgt_p}, color: '#00C853', lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'TARGET: ₹{tgt_p}'
             }});
-
-            // 🔴 STOP LOSS LINE
+            // 🔴 STOPLOSS
             candleSeries.createPriceLine({{
-                price: {sl_p},
-                color: '#D50000',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'STOPLOSS: ₹{sl_p}'
+                price: {sl_p}, color: '#D50000', lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'STOPLOSS: ₹{sl_p}'
             }});
-
-            // 🔀 📦 **LIVE RUNNING PROFIT/LOSS TRACKING LINE**
+            // 🔀 LIVE RUNNING P&L
             candleSeries.createPriceLine({{
-                price: {live_p},
-                color: '{pnl_color}',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: '{pnl_text}'
+                price: {live_p}, color: '{pnl_color}', lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: '{pnl_text}'
             }});
         }}
 
-        chart.timeScale().subscribeVisibleLogicalRangeChange(range => {{
-            if (range) {{ window.userHasZoomed = true; }}
-        }});
-        if (!window.userHasZoomed) {{ chart.timeScale().fitContent(); }}
-        
         window.addEventListener('resize', () => {{
-            chart.resize(container.clientWidth, 420);
+            chart.resize(container.clientWidth, 400);
         }});
     </script>
 </body>
 </html>"""
 
-components.html(raw_html, height=430, scrolling=False)
+components.html(raw_html, height=450, scrolling=False)
 
 if st.session_state.in_position:
     if trade_pnl >= 0:
