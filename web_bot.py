@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ==========================================
-# १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
+# १. पेज आणि कॅपिटल सेटिंग्ज
 # ==========================================
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
@@ -29,7 +29,7 @@ def save_state(state_data):
     try:
         with open(STATE_FILE, "w") as f:
             json.dump(state_data, f)
-    except:
+    except Exception:
         pass
 
 def load_state():
@@ -37,7 +37,7 @@ def load_state():
         try:
             with open(STATE_FILE, "r") as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -60,7 +60,7 @@ def init_api():
         session_data = smart_api.generateSession(CLIENT_ID, PIN, totp)
         if session_data.get("status"):
             return smart_api
-    except:
+    except Exception:
         pass
     return None
 
@@ -89,12 +89,12 @@ def fetch_latest_angel_token(strike_price, option_type):
                         exp_date = datetime.datetime.strptime(expiry_str, "%d%b%Y").date()
                         if exp_date >= datetime.date.today():
                             valid_options.append((exp_date, item.get("token"), item.get("symbol")))
-                    except:
+                    except Exception:
                         pass
         if valid_options:
             valid_options.sort(key=lambda x: x[0])
             return valid_options[0][1], valid_options[0][2], valid_options[0][0].strftime("%d-%b-%Y")
-    except:
+    except Exception:
         pass
     return None, None, None
 
@@ -103,22 +103,4 @@ bc = 24400.00
 
 col1, col2 = st.columns(2)
 col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
-col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
-st.markdown("---")
-
-# 🔒 सुरक्षित डेटा इनिशियलायझेशन
-saved_data = load_state()
-
-defaults = {
-    "in_position": False,
-    "trade_type": None,
-    "selected_option": "",
-    "option_token": "",
-    "premium_entry": 0.0,
-    "entry_spot_price": 0.0,
-    "total_day_pnl": 0.0,
-    "day_over": False,
-    "current_sl": 0.0,
-    "current_tgt": 0.0,
-    "sl_trailed_to_cost": False,
-    "ohlc_data": [],
+col2.
