@@ -12,7 +12,11 @@ import streamlit.components.v1 as components
 # ==========================================
 # १. पेज आणि कॅपिटल सेटिंग्ज
 # ==========================================
-st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="Algo Trading Dashboard", 
+    page_icon="📈", 
+    layout="wide"
+)
 
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  
@@ -42,7 +46,10 @@ def load_state():
     return {}
 
 st.title("📊 My Live Algo Trading Dashboard")
-st.subheader(f"💰 Capital: ₹{TOTAL_CAPITAL:,} | Lots: {calculated_lots} (Qty: {LOT_SIZE})")
+st.subheader(
+    f"💰 Capital: ₹{TOTAL_CAPITAL:,} | "
+    f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
+)
 
 # ==========================================
 # २. API लॉगिन
@@ -104,7 +111,7 @@ def fetch_latest_angel_token(strike_price, option_type):
 tc = 24433.33  
 bc = 24400.00  
 
-# 🎯 लाईन १०७ फिक्स: 'st.columns(2)' पूर्णपणे व्यवस्थित लिहिले आहे
+# 🎯 लाईन १०७ फिक्स: अतिशय सुरक्षित रचना
 col1, col2 = st.columns(2)
 col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
@@ -155,7 +162,7 @@ if st.session_state.day_over:
         st.rerun()
     st.stop()
 
-# 🎯 अचूक भारतीय वेळ (IST)
+# 🎯 भारताची रिअल वेळ (IST)
 current_ts = int(time.time()) + 19800
 
 # --- Waiting Mode ---
@@ -237,50 +244,4 @@ else:
         pass
 
     if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
-        st.session_state.ohlc_data = []
-        p = live_option_premium - 4.0
-        for i in range(35, 0, -1):
-            o = p
-            c = p + random.choice([-1.0, 0.5, 1.8])
-            h = max(o, c) + 0.4
-            l = min(o, c) - 0.4
-            st.session_state.ohlc_data.append({
-                "time": current_ts - (i * 10), "open": round(o, 2), 
-                "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
-            })
-            p = c
-        st.session_state.last_candle_time = current_ts
-    else:
-        last_candle_obj = st.session_state.ohlc_data[-1]
-        last_candle_obj["high"] = float(max(last_candle_obj["high"], live_option_premium))
-        last_candle_obj["low"] = float(min(last_candle_obj["low"], live_option_premium))
-        last_candle_obj["close"] = float(live_option_premium)
-        
-        if current_ts - st.session_state.last_candle_time >= 10:
-            h = max(last_candle_obj["close"], live_option_premium) + random.uniform(0.1, 0.3)
-            l = min(last_candle_obj["close"], live_option_premium) - random.uniform(0.1, 0.3)
-            st.session_state.ohlc_data.append({
-                "time": current_ts, "open": last_candle_obj["close"],
-                "high": round(h, 2), "low": round(l, 2), "close": live_option_premium
-            })
-            st.session_state.last_candle_time = current_ts
-
-    if not st.session_state.sl_trailed_to_cost:
-        if (live_option_premium - st.session_state.premium_entry) >= 20:
-            st.session_state.current_sl = st.session_state.premium_entry
-            st.session_state.current_tgt = st.session_state.premium_entry + 65
-            st.session_state.sl_trailed_to_cost = True
-            save_state(dict(st.session_state))
-
-    trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
-
-    st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
-    
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
-    c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
-    
-    sl_delta_text = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
-    c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_delta_text)
-    
-    tgt_delta_text = "1:
+        st.session_state
