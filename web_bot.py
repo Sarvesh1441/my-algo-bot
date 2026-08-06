@@ -71,7 +71,7 @@ if smart_api is None:
     st.stop()
 
 # ==========================================
-# ३. एक्सपायरी आणि टोकन शोधणे
+# ३. एक्सपायरी आणि टोकन शोधणे (100% शॉर्ट लाईन - नो कटिंग)
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_latest_angel_token(strike_price, option_type):
@@ -79,6 +79,138 @@ def fetch_latest_angel_token(strike_price, option_type):
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         res = requests.get(url).json()
         valid_options = []
+        target_strike = float(strike_price * 100)
+        
         for item in res:
-            if (item.get("exch_seg") == "NFO" and item.get("name") == "NIFTY" and 
-                item.get("instrumenttype") == "OPTIDX" and float(item.get("strike", 0)) == (strike_price *
+            if item.get("exch_seg") == "NFO" and item.get("name") == "NIFTY":
+                if item.get("instrumenttype") == "OPTIDX":
+                    if float(item.get("strike", 0)) == target_strike:
+                        if item.get("symbol", "").endswith(option_type):
+                            expiry_str = item.get("expiry", "")
+                            if expiry_str:
+                                try:
+                                    exp_date = datetime.datetime.strptime(expiry_str, "%d%b%Y").date()
+                                    if exp_date >= datetime.date.today():
+                                        valid_options.append((exp_date, item.get("token"), item.get("symbol")))
+                                except Exception:
+                                    pass
+        if valid_options:
+            valid_options.sort(key=lambda x: x[0])
+            return valid_options[0][1], valid_options[0][2], valid_options[0][0].strftime("%d-%b-%Y")
+    except Exception:
+        pass
+    return None, None, None
+
+tc = 24433.33  
+bc = 24400.00  
+
+col1, col2 = st.columns(2)
+col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
+col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
+st.markdown("---")
+
+# 🔒 सुरक्षित स्टेट इनिशियलायझेशन
+saved_data = load_state()
+
+defaults = {
+    "in_position": False,
+    "trade_type": None,
+    "selected_option": "",
+    "option_token": "",
+    "premium_entry": 0.0,
+    "entry_spot_price": 0.0,
+    "total_day_pnl": 0.0,
+    "day_over": False,
+    "current_sl": 0.0,
+    "current_tgt": 0.0,
+    "sl_trailed_to_cost": False,
+    "ohlc_data": [],
+    "last_candle_time": 0
+}
+
+for key, default_val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = saved_data.get(key, default_val)
+
+# ==========================================
+# ४. मुख्य डेटा फेचिंग लॉजिक
+# ==========================================
+spot_price = 24630.00
+try:
+    spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
+    if spot_data and spot_data.get("status") and spot_data.get("data"):
+        spot_price = float(spot_data["data"]["ltp"])
+except Exception:
+    pass
+
+st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
+
+if st.session_state.day_over:
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+    if st.button("🔄 उद्यासाठी रीसेट करा"):
+        for k, v in defaults.items():
+            st.session_state[k] = v
+        save_state(dict(st.session_state))
+        st.rerun()
+    st.stop()
+
+# 🎯 अचूक भारतीय वेळ (IST = UTC + 5:30 Hours / 19800 sec)
+current_ts = int(time.time()) + 19800
+
+# --- Waiting Mode ---
+if not st.session_state.in_position:
+    st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+    
+    if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
+        st.session_state.ohlc_data = []
+        p = spot_price - 8.0
+        for i in range(35, 0, -1):
+            o = p
+            c = p + random.choice([-2.5, -1.0, 1.5, 3.5])
+            st.session_state.ohlc_data.append({
+                "time": current_ts - (i * 10),
+                "open": round(o, 2),
+                "high": round(max(o, c) + random.uniform(0.4, 1.2), 2),
+                "low": round(min(o, c) - random.uniform(0.4, 1.2), 2),
+                "close": round(c, 2)
+            })
+            p = c
+        st.session_state.last_candle_time = current_ts
+    else:
+        if current_ts - st.session_state.last_candle_time >= 10:
+            last_c = st.session_state.ohlc_data[-1]["close"]
+            next_c = last_c + random.choice([-1.5, 1.2, 2.8])
+            st.session_state.ohlc_data.append({
+                "time": current_ts, "open": last_c,
+                "high": round(max(last_c, next_c) + random.uniform(0.3, 1.0), 2),
+                "low": round(min(last_c, next_c) - random.uniform(0.3, 1.0), 2), 
+                "close": next_c
+            })
+            st.session_state.last_candle_time = current_ts
+            
+    if spot_price > tc or spot_price < bc:
+        trade_type = "CE" if spot_price > tc else "PE"
+        atm_strike = round(spot_price / 50) * 50
+        itm_strike = atm_strike - 50 if trade_type == "CE" else atm_strike + 50
+        
+        token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
+        if token and symbol_name:
+            opt_data = smart_api.ltpData("NFO", symbol_name, token)
+            entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
+            
+            st.session_state.trade_type = trade_type
+            st.session_state.selected_option = symbol_name
+            st.session_state.option_token = token
+            st.session_state.premium_entry = entry_premium
+            st.session_state.current_sl = entry_premium - SL_POINTS
+            st.session_state.current_tgt = entry_premium + 30
+            st.session_state.sl_trailed_to_cost = False
+            
+            st.session_state.ohlc_data = []
+            p = entry_premium - 4.0
+            for i in range(35, 0, -1):
+                o = p
+                c = p + random.choice([-1.0, 0.5, 1.8])
+                st.session_state.ohlc_data.append({
+                    "time": current_ts - (i * 10), "open": round(o, 2),
+                    "high": round(max(o, c) + random.uniform(0.2, 0.6),
