@@ -7,7 +7,7 @@ from SmartApi import SmartConnect
 import json
 import os
 import pandas as pd
-import plotly.graph_objects as go
+import streamlit.components.v1 as components
 
 # ==========================================
 # १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
 STATE_FILE = "trade_state.json"
-TOTAL_CAPITAL = 100000  # तुमचे एकूण कॅपिटल
+TOTAL_CAPITAL = 100000  
 RISK_PER_TRADE = TOTAL_CAPITAL * 0.05  
 SL_POINTS = 15  
 NIFTY_LOT_SIZE = 65  
@@ -98,7 +98,7 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# 🔒 Session State Initialization (एरर फिक्ससह)
+# 🔒 Session State Initialization
 saved_data = load_state()
 
 defaults = {
@@ -121,7 +121,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि परफेक्ट ट्रेडिंगव्ह्यू चार्ट
+# ४. मुख्य डेटा ट्रॅकिंग
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -129,8 +129,8 @@ try:
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
     if st.session_state.day_over:
-        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा"):
+        st.warning(f"🔒 आजचा ठेवा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        if st.button("🔄 रीसेट करा"):
             for k, v in defaults.items():
                 st.session_state[k] = v
             save_state(dict(st.session_state))
@@ -139,7 +139,7 @@ try:
 
     # --- Waiting Mode ---
     if not st.session_state.in_position:
-        st.info(f"⏳ बॉट ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
         if spot_price > tc or spot_price < bc:
             trade_type = "CE" if spot_price > tc else "PE"
@@ -151,7 +151,8 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
-                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                # TradingView ला UNIX timestamp लागतो (सेकंदांमध्ये)
+                current_ts = int(time.time())
                 
                 st.session_state.trade_type = trade_type
                 st.session_state.selected_option = symbol_name
@@ -161,7 +162,7 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 st.session_state.ohlc_data = [{
-                    "Time": current_time, "Open": entry_premium, "High": entry_premium + 2, "Low": entry_premium - 1, "Close": entry_premium
+                    "time": current_ts, "open": entry_premium, "high": entry_premium + 1, "low": entry_premium - 1, "close": entry_premium
                 }]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
@@ -178,27 +179,27 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        # 🕯️ रिअल ट्रेडिंगव्ह्यू कॅन्डलस्टिक मेकिंग
-        current_time = datetime.datetime.now().strftime("%H:%M")
+        # 🕯️ TradingView सुसंगत डेटा मॅनेजमेंट
+        current_ts = int(time.time())
         
         if not st.session_state.ohlc_data:
             st.session_state.ohlc_data.append({
-                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                "time": current_ts, "open": live_option_premium, "high": live_option_premium, "low": live_option_premium, "close": live_option_premium
             })
         else:
             last_candle = st.session_state.ohlc_data[-1]
-            last_candle["High"] = max(last_candle["High"], live_option_premium)
-            last_candle["Low"] = min(last_candle["Low"], live_option_premium)
-            last_candle["Close"] = live_option_premium
+            # जर चालू मिनिट असेल तर त्याच कॅन्डलमध्ये अपडेट करणे
+            last_candle["high"] = max(last_candle["high"], live_option_premium)
+            last_candle["low"] = min(last_candle["low"], live_option_premium)
+            last_candle["close"] = live_option_premium
             
-            # दर १० सेकंदांनी प्रॉपर क्लोज करून नवी कॅन्डल ओळीने जोडणे
-            if int(time.time()) % 10 == 0:
+            # दर १० सेकंदांनी नवी कॅन्डल जोडून पुढे सरकवणे
+            if current_ts - last_candle["time"] >= 10:
                 st.session_state.ohlc_data.append({
-                    "Time": datetime.datetime.now().strftime("%H:%M:%S"), 
-                    "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                    "time": current_ts, "open": live_option_premium, "high": live_option_premium, "low": live_option_premium, "close": live_option_premium
                 })
 
-        if len(st.session_state.ohlc_data) > 40:
+        if len(st.session_state.ohlc_data) > 60:
             st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
@@ -220,43 +221,57 @@ try:
         
         st.markdown("---")
         
-        # 🕯️ **परफेक्ट ट्रेडिंगव्ह्यू लाइट/प्रापर थीम चार्ट**
-        df_candles = pd.DataFrame(st.session_state.ohlc_data)
+        # 🚀 **खराखुरा TradingView Lightweight Chart (HTML/JS विजेट)**
+        st.subheader("🕯️ Live TradingView Candlestick Chart")
         
-        fig = go.Figure(data=[go.Candlestick(
-            x=df_candles['Time'],
-            open=df_candles['Open'],
-            high=df_candles['High'],
-            low=df_candles['Low'],
-            close=df_candles['Close'],
-            # ट्रेडिंगव्ह्यूचे ओरिजिनल सॉलिड सॉलिड कलर्स
-            increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
-            increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350',
-            whiskerwidth=0.4
-        )])
+        # JSON डेटा तयार करणे
+        tv_data = json.dumps(st.session_state.ohlc_data)
         
-        # लाईट ग्रिडलाईन्स आणि योग्य रचनेचा लेआऊट (ट्रेडिंगव्ह्यू प्रमाणे)
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            height=450,
-            margin=dict(l=20, r=40, t=10, b=20),
-            paper_bgcolor='#ffffff',  # क्लीन व्हाईट बॅकग्राउंड
-            plot_bgcolor='#ffffff',
-            # फिकट राखाडी रंगाच्या ग्रीडलाईन्स (तंतोतंत धन/ट्रेडिंगव्ह्यू सारख्या)
-            xaxis=dict(
-                gridcolor='#f0f3fa', 
-                tickfont=dict(color='#787b86', size=11),
-                type='category'  # यामुळे कॅन्डल्समध्ये मोठी गॅप न पडता ओळीने व्यवस्थित दिसतील!
-            ),
-            yaxis=dict(
-                gridcolor='#f0f3fa', 
-                side="right",    # प्राईस स्केल उजवीकडे
-                tickfont=dict(color='#787b86', size=11),
-                autorange=True
-            )
-        )
+        # ओरिजिनल ट्रेडिंगव्ह्यू लायब्ररी वापरून तयार केलेले चार्ट विजेट
+        html_code = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+            <style>
+                body {{ margin: 0; padding: 0; background-color: #ffffff; }}
+                #chart {{ width: 100%; height: 420px; }}
+            </style>
+        </head>
+        <body>
+            <div id="chart"></div>
+            <script>
+                const chartProperties = {{
+                    width: document.getElementById('chart').clientWidth,
+                    height: 420,
+                    layout: {{ backgroundColor: '#ffffff', textColor: '#787b86' }},
+                    grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
+                    crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
+                    priceScale: {{ position: 'right', borderVisible: true }},
+                    timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: false }}
+                }};
+                
+                const chart = LightweightCharts.createChart(document.getElementById('chart'), chartProperties);
+                const candleSeries = chart.addCandlestickSeries({{
+                    upColor: '#26a69a', downColor: '#ef5350',
+                    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+                    wickUpColor: '#26a69a', wickDownColor: '#ef5350'
+                }});
+                
+                const rawData = {tv_data};
+                candleSeries.setData(rawData);
+                
+                // ऑटो रिस्पॉन्सिव्ह विड्थ
+                window.addEventListener('resize', () => {{
+                    chart.resize(document.getElementById('chart').clientWidth, 420);
+                }});
+            </script>
+        </body>
+        </html>
+        """
         
-        st.plotly_chart(fig, use_container_width=True)
+        # डॅशबोर्डवर इम्बेड करणे
+        components.html(html_code, height=440, scrolling=False)
 
         if trade_pnl >= 0:
             st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
