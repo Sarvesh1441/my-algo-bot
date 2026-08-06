@@ -7,6 +7,7 @@ from SmartApi import SmartConnect
 import json
 import os
 import random
+from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 
 # ==========================================
@@ -17,6 +18,9 @@ st.set_page_config(
     page_icon="📈", 
     layout="wide"
 )
+
+# 🔄 **दर २ सेकंदाला लाईव्ह डेटा ऑटो-रिफ्रेश करणारी मॅजिक लाईन**
+st_autorefresh(interval=2000, limit=None, key="live_data_refresher")
 
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  
@@ -131,7 +135,8 @@ defaults = {
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
-    "ohlc_data": []
+    "ohlc_data": [],
+    "last_candle_time": 0
 }
 
 for key, default_val in defaults.items():
@@ -139,7 +144,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा फेचिंग लॉजिक
+# ४. मुख्य डेटा फेचिंग लॉजिक (२ सेकंदाला अपडेट)
 # ==========================================
 spot_price = 24630.00
 try:
@@ -163,41 +168,109 @@ if st.session_state.day_over:
 current_ts = int(time.time()) + 19800
 is_active_trade = st.session_state.in_position
 
-# OHLC डेटा निर्मिती
-if not st.session_state.ohlc_data:
-    st.session_state.ohlc_data = []
-    p = spot_price - 10.0
-    for i in range(40, 0, -1):
-        o = p
-        c = p + random.choice([-2.0, -0.5, 1.2, 2.8])
-        h = max(o, c) + random.uniform(0.3, 1.0)
-        l = min(o, c) - random.uniform(0.3, 1.0)
-        st.session_state.ohlc_data.append({
-            "time": current_ts - (i * 300),
-            "open": round(o, 2), "high": round(h, 2),
-            "low": round(l, 2), "close": round(c, 2)
-        })
-        p = c
+# --- Waiting Mode ---
+if not is_active_trade:
+    st.info(f"⏳ BREAKOUT ची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+    
+    if not st.session_state.ohlc_data:
+        st.session_state.ohlc_data = []
+        p = spot_price - 8.0
+        for i in range(35, 0, -1):
+            o = p
+            c = p + random.choice([-2.5, -1.0, 1.5, 3.5])
+            h = max(o, c) + random.uniform(0.4, 1.2)
+            l = min(o, c) - random.uniform(0.4, 1.2)
+            st.session_state.ohlc_data.append({
+                "time": current_ts - (i * 300), "open": round(o, 2),
+                "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+            })
+            p = c
+            
+    if spot_price > tc or spot_price < bc:
+        trade_type = "CE" if spot_price > tc else "PE"
+        atm_strike = round(spot_price / 50) * 50
+        itm_strike = atm_strike - 50 if trade_type == "CE" else atm_strike + 50
+        
+        token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
+        if token and symbol_name:
+            opt_data = smart_api.ltpData("NFO", symbol_name, token)
+            entry_premium = 140.00
+            if opt_data and opt_data.get("status") and opt_data.get("data"):
+                entry_premium = float(opt_data["data"]["ltp"])
+            
+            st.session_state.trade_type = trade_type
+            st.session_state.selected_option = symbol_name
+            st.session_state.option_token = token
+            st.session_state.premium_entry = entry_premium
+            st.session_state.current_sl = entry_premium - SL_POINTS
+            st.session_state.current_tgt = entry_premium + 30
+            st.session_state.sl_trailed_to_cost = False
+            
+            st.session_state.ohlc_data = []
+            p = entry_premium - 4.0
+            for i in range(35, 0, -1):
+                o = p
+                c = p + random.choice([-1.0, 0.5, 1.8])
+                h = max(o, c) + random.uniform(0.2, 0.6)
+                l = min(o, c) - random.uniform(0.2, 0.6)
+                st.session_state.ohlc_data.append({
+                    "time": current_ts - (i * 300), "open": round(o, 2),
+                    "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+                })
+                p = c
+            st.session_state.in_position = True
+            save_state(dict(st.session_state))
+            st.rerun()
 
-live_option_premium = st.session_state.premium_entry
-if is_active_trade and st.session_state.option_token:
-    try:
-        opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
-        if opt_data and opt_data.get("status") and opt_data.get("data"):
-            live_option_premium = float(opt_data["data"]["ltp"])
-    except Exception:
-        pass
+# --- Active Tracking Mode ---
+else:
+    live_option_premium = st.session_state.premium_entry
+    if st.session_state.option_token:
+        try:
+            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
+            if opt_data and opt_data.get("status") and opt_data.get("data"):
+                live_option_premium = float(opt_data["data"]["ltp"])
+        except Exception:
+            pass
 
-trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE if is_active_trade else 0.0
+    # Trailing SL Check (+20 Points)
+    if not st.session_state.sl_trailed_to_cost:
+        if (live_option_premium - st.session_state.premium_entry) >= 20:
+            st.session_state.current_sl = st.session_state.premium_entry
+            st.session_state.current_tgt = st.session_state.premium_entry + 65
+            st.session_state.sl_trailed_to_cost = True
+            save_state(dict(st.session_state))
 
-if is_active_trade:
-    st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
+    # Live Candle Update
+    if st.session_state.ohlc_data:
+        last_c = st.session_state.ohlc_data[-1]
+        last_c["high"] = float(max(last_c["high"], live_option_premium))
+        last_c["low"] = float(min(last_c["low"], live_option_premium))
+        last_c["close"] = float(live_option_premium)
+
+    trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
+
+    st.write(f"### 🎯 Active Position: **{st.session_state.selected_option}**")
+    
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
-    c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
-    c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}")
-    c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}")
+    c2.metric("⚡ Live Premium", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - st.session_state.premium_entry:.2f} pts")
+    
+    sl_lbl = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
+    c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_lbl)
+    
+    tgt_lbl = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
+    c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_lbl)
+    
     st.markdown("---")
+
+    # Target or SL Exit Check
+    if live_option_premium >= st.session_state.current_tgt or live_option_premium <= st.session_state.current_sl:
+        st.session_state.total_day_pnl += trade_pnl
+        st.session_state.in_position = False
+        st.session_state.day_over = True
+        save_state(dict(st.session_state))
+        st.rerun()
 
 # ==========================================
 # ५. स्थिर (No-Disappear) ट्रेडिंगव्ह्यू चार्ट इंजिन
@@ -262,10 +335,6 @@ components.html(raw_html, height=430, scrolling=False)
 
 if is_active_trade:
     if trade_pnl >= 0:
-        st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}")
+        st.metric("Live Running Profit", f"+₹{trade_pnl:.2f}")
     else:
-        st.metric("Live Profit / Loss", f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
-
-# रीफ्रेश बटण (सारखे-सारखे ऑटो रिफ्रेश होऊन चार्ट गायब होणे थांबवण्यासाठी)
-if st.button("🔄 Update Live Data"):
-    st.rerun()
+        st.metric("Live Running Loss", f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
