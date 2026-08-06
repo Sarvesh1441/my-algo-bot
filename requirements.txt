@@ -1,6 +1,5 @@
-smartapi-python
 streamlit
+streamlit-autorefresh
+SmartApi-python
 pyotp
 requests
-pandas
-plotly
