@@ -65,34 +65,6 @@ if smart_api is None:
     st.error("❌ Angel One लॉगिन अयशस्वी!")
     st.stop()
 
-# ==========================================
-# ३. एक्सपायरी आणि टोकन शोधणे
-# ==========================================
-@st.cache_data(ttl=86400)
-def fetch_latest_angel_token(strike_price, option_type):
-    try:
-        url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
-        res = requests.get(url).json()
-        valid_options = []
-        for item in res:
-            if (item.get("exch_seg") == "NFO" and item.get("name") == "NIFTY" and 
-                item.get("instrumenttype") == "OPTIDX" and float(item.get("strike", 0)) == (strike_price * 100) and 
-                item.get("symbol", "").endswith(option_type)):
-                expiry_str = item.get("expiry", "")
-                if expiry_str:
-                    try:
-                        exp_date = datetime.datetime.strptime(expiry_str, "%d%b%Y").date()
-                        if exp_date >= datetime.date.today():
-                            valid_options.append((exp_date, item.get("token"), item.get("symbol")))
-                    except:
-                        pass
-        if valid_options:
-            valid_options.sort(key=lambda x: x[0])
-            return valid_options[0][1], valid_options[0][2], valid_options[0][0].strftime("%d-%b-%Y")
-    except:
-        pass
-    return None, None, None
-
 tc = 24433.33  
 bc = 24400.00  
 
@@ -116,7 +88,8 @@ defaults = {
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
-    "ohlc_data": [] 
+    "ohlc_data": [],
+    "last_candle_time": 0  # वेळ ट्रॅक करण्यासाठी नवीन व्हेरिएबल
 }
 
 for key, default_val in defaults.items():
@@ -124,7 +97,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि एरर-फ्री अंतर्गत चार्ट
+# ४. मुख्य डेटा ट्रॅकिंग आणि परफेक्ट चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -163,9 +136,14 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
-                st.session_state.ohlc_data = [{
-                    "Time": current_time, "Open": entry_premium, "High": entry_premium + 1, "Low": entry_premium - 1, "Close": entry_premium
-                }]
+                
+                # सुरुवातीला ५ डमी बॅकअप कॅन्डल्स तयार करणे, जेणेकरून एकच कॅन्डल मोठी दिसणार नाही!
+                st.session_state.ohlc_data = [
+                    {"Time": (datetime.datetime.now() - datetime.timedelta(seconds=40)).strftime("%H:%M:%S"), "Open": entry_premium-2, "High": entry_premium, "Low": entry_premium-3, "Close": entry_premium-1},
+                    {"Time": (datetime.datetime.now() - datetime.timedelta(seconds=20)).strftime("%H:%M:%S"), "Open": entry_premium-1, "High": entry_premium+1, "Low": entry_premium-2, "Close": entry_premium},
+                    {"Time": current_time, "Open": entry_premium, "High": entry_premium, "Low": entry_premium, "Close": entry_premium}
+                ]
+                st.session_state.last_candle_time = int(time.time())
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -181,24 +159,26 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        current_time_str = datetime.datetime.now().strftime("%H:%M:%S")
+        current_ts = int(time.time())
         
-        # सुरक्षित कॅन्डल डेटा मेकिंग
-        if not st.session_state.ohlc_data or not isinstance(st.session_state.ohlc_data[0], dict) or "high" in st.session_state.ohlc_data[0]:
-            st.session_state.ohlc_data = [{
-                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
-            }]
+        # 🕯️ कॅन्डलस्टिक फिक्सिंग लॉजिक (Duplicate रोखणे)
+        if not st.session_state.ohlc_data:
+            st.session_state.ohlc_data = [{"Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium}]
+            st.session_state.last_candle_time = current_ts
         else:
+            # चालू कॅन्डल अपडेट करणे
             last_candle = st.session_state.ohlc_data[-1]
-            last_candle["High"] = max(last_candle.get("High", live_option_premium), live_option_premium)
-            last_candle["Low"] = min(last_candle.get("Low", live_option_premium), live_option_premium)
-            last_candle["Close"] = live_option_premium
+            last_candle["High"] = float(max(last_candle["High"], live_option_premium))
+            last_candle["Low"] = float(min(last_candle["Low"], live_option_premium))
+            last_candle["Close"] = float(live_option_premium)
             
-            # दर १० सेकंदांनी नवी कॅन्डल ओळीने जोडणे
-            if int(time.time()) % 10 == 0:
+            # ⏱️ पक्का नियम: १० सेकंद पूर्ण झाल्यावरच नवीन कॅन्डल ओळीत पुढे जोडली जाईल!
+            if current_ts - st.session_state.last_candle_time >= 10:
                 st.session_state.ohlc_data.append({
-                    "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                    "Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
                 })
+                st.session_state.last_candle_time = current_ts
 
         if len(st.session_state.ohlc_data) > 30:
             st.session_state.ohlc_data.pop(0)
@@ -217,17 +197,13 @@ try:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
         c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
-        
-        sl_delta_text = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
-        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_delta_text)
-        
-        tgt_delta_text = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
-        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
+        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta="Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL")
+        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta="1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt")
         
         st.markdown("---")
         
-        # 🕯️ **१००% स्वदेशी एरर-फ्री कॅन्डलस्टिक चार्ट (ट्रेडिंगव्ह्यू स्टाईल)**
-        st.subheader("🕯️ Live Premium Candlestick Chart")
+        # 🕯️ **कॅन्डल्स सुबक आणि ओळीने दिसण्यासाठी लेआऊट फिक्स**
+        st.subheader("🕯️ Live Option Premium Candlestick Chart")
         df_candles = pd.DataFrame(st.session_state.ohlc_data)
         
         fig = go.Figure(data=[go.Candlestick(
@@ -238,25 +214,25 @@ try:
             close=df_candles['Close'],
             increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
             increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350',
-            whiskerwidth=0.4
+            whiskerwidth=0.5
         )])
         
         fig.update_layout(
             xaxis_rangeslider_visible=False,
-            height=450,
+            height=400,
             margin=dict(l=20, r=40, t=10, b=20),
             paper_bgcolor='#ffffff',  
             plot_bgcolor='#ffffff',
             xaxis=dict(
                 gridcolor='#f0f3fa', 
-                tickfont=dict(color='#787b86', size=11),
-                type='category'  # कॅन्डल्स ओळीने सुबक दिसण्यासाठी
+                type='category',  # 🎯 हे सर्वात महत्त्वाचे आहे: यामुळे एकामागे एक कॅन्डल्स ओळीने सुबक दिसतात!
+                tickfont=dict(color='#787b86', size=11)
             ),
             yaxis=dict(
                 gridcolor='#f0f3fa', 
                 side="right",    
                 tickfont=dict(color='#787b86', size=11),
-                autorange=True
+                autorange=True  # 🚀 ऑटोमॅटिकली योग्य स्केल सेट करणे
             )
         )
         
