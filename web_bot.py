@@ -7,6 +7,7 @@ from SmartApi import SmartConnect
 import json
 import os
 import pandas as pd
+import plotly.graph_objects as go
 
 # ==========================================
 # १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
@@ -16,7 +17,7 @@ st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  # तुमचे एकूण कॅपिटल
 RISK_PER_TRADE = TOTAL_CAPITAL * 0.05  
-SL_POINTS = 15  # मूळ स्टॉपलॉस १५ पॉईंट्स
+SL_POINTS = 15  
 NIFTY_LOT_SIZE = 65  
 
 calculated_lots = int(RISK_PER_TRADE / (SL_POINTS * NIFTY_LOT_SIZE))
@@ -37,8 +38,8 @@ def load_state():
             pass
     return {}
 
-st.title("📊 My Live Algo Trailing Dashboard")
-st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | {calculated_lots} Lots | 🎯 डायनॅमिक १:३ टार्गेट सिस्टीम")
+st.title("📊 My Live Algo Candlestick Dashboard")
+st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | {calculated_lots} Lots | 🕯️ लाईव्ह कॅन्डलस्टिक चार्ट सिस्टीम")
 
 # ==========================================
 # २. API लॉगिन
@@ -112,7 +113,8 @@ defaults = {
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
-    "price_history": []  # 📈 चार्टसाठी प्रीमियमची हिस्ट्री सेव्ह करणे
+    # 🕯️ कॅन्डलसाठी डेटाबेस (Open, High, Low, Close, Time)
+    "ohlc_data": [] 
 }
 
 for key, default_val in defaults.items():
@@ -120,7 +122,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि चार्ट डिस्प्ले
+# ४. मुख्य डेटा ट्रॅकिंग आणि कॅन्डलस्टिक लॉजिक
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -150,6 +152,8 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
+                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                
                 st.session_state.trade_type = trade_type
                 st.session_state.selected_option = symbol_name
                 st.session_state.option_token = token
@@ -157,7 +161,10 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
-                st.session_state.price_history = [entry_premium]
+                # पहिली कॅन्डल सुरु करणे
+                st.session_state.ohlc_data = [{
+                    "Time": current_time, "Open": entry_premium, "High": entry_premium, "Low": entry_premium, "Close": entry_premium
+                }]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
                 st.rerun()
@@ -173,11 +180,29 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        # चार्टसाठी लाईव्ह भावाचा डेटा सेव्ह करणे
-        st.session_state.price_history.append(live_option_premium)
-        # डेटा जास्त मोठा होऊ नये म्हणून शेवटी ५० पॉईंट्स ठेवणे
-        if len(st.session_state.price_history) > 50:
-            st.session_state.price_history.pop(0)
+        # 🕯️ रिअल-टाइम कॅन्डलस्टिक मेकिंग लॉजिक
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        if not st.session_state.ohlc_data:
+            st.session_state.ohlc_data.append({
+                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+            })
+        else:
+            last_candle = st.session_state.ohlc_data[-1]
+            # जर चालू कॅन्डलमध्ये बदल करायचा असेल तर (Live Update)
+            last_candle["High"] = max(last_candle["High"], live_option_premium)
+            last_candle["Low"] = min(last_candle["Low"], live_option_premium)
+            last_candle["Close"] = live_option_premium
+            
+            # प्रत्येक १० रिफ्रेशनंतर नवीन कॅन्डल तयार करणे (Time Frame Simulation)
+            if len(st.session_state.ohlc_data) > 0 and int(time.time()) % 10 == 0:
+                st.session_state.ohlc_data.append({
+                    "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                })
+
+        # कॅन्डल डेटाची मर्यादा २५ वर सेट करणे
+        if len(st.session_state.ohlc_data) > 25:
+            st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
             if (live_option_premium - st.session_state.premium_entry) >= 20:
@@ -202,12 +227,26 @@ try:
         
         st.markdown("---")
         
-        # 📈 **लाइव्ह ऑप्शन प्रीमियमचा चार्ट**
-        st.subheader("📉 Live Option Premium Chart")
-        chart_data = pd.DataFrame({
-            "Live Premium": st.session_state.price_history
-        })
-        st.line_chart(chart_data)
+        # 🕯️ **Plotly द्वारे कॅन्डलस्टिक चार्ट डिस्प्ले**
+        st.subheader("🕯️ Live Premium Candlestick Chart")
+        df_candles = pd.DataFrame(st.session_state.ohlc_data)
+        
+        fig = go.Figure(data=[go.Candlestick(
+            x=df_candles['Time'],
+            open=df_candles['Open'],
+            high=df_candles['High'],
+            low=df_candles['Low'],
+            close=df_candles['Close'],
+            increasing_line_color='green', decreasing_line_color='red'
+        )])
+        
+        fig.update_layout(
+            xaxis_rangeslider_visible=False,
+            margin=dict(l=20, r=20, t=20, b=20),
+            height=400,
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
         if trade_pnl >= 0:
             st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
