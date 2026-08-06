@@ -7,20 +7,16 @@ from SmartApi import SmartConnect
 import json
 import os
 import random
-from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 
 # ==========================================
 # १. पेज आणि कॅपिटल सेटिंग्ज
 # ==========================================
 st.set_page_config(
-    page_title="CPR Algo Trading Dashboard", 
+    page_title="Intraday & BTST Algo Dashboard", 
     page_icon="📈", 
     layout="wide"
 )
-
-# दर २ सेकंदाला लाईव्ह डेटा ऑटो-रिफ्रेश
-st_autorefresh(interval=2000, limit=None, key="live_data_refresher")
 
 STATE_FILE = "trade_state.json"
 TOTAL_CAPITAL = 100000  
@@ -49,7 +45,7 @@ def load_state():
             pass
     return {}
 
-st.title("📊 CPR Strategy Live Algo Dashboard")
+st.title("📊 Intraday & BTST Live Algo Dashboard")
 st.subheader(
     f"💰 Capital: ₹{TOTAL_CAPITAL:,} | "
     f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
@@ -113,9 +109,17 @@ def fetch_latest_angel_token(strike_price, option_type):
     return None, None, None
 
 # ==========================================
-# 🎯 CPR LEVELS (Central Pivot Range Calculation)
+# ⚙️ ट्रेडिंग मोड निवड (Intraday किंवा BTST)
 # ==========================================
-# कालचे High, Low, Close (उदाहरणासाठी - लाईव्ह API वरून ऑटोमॅटिक घेईल)
+trade_mode = st.radio(
+    "🔄 Select Trading Mode:", 
+    ["Intraday (Square-off at 3:15 PM)", "BTST (Hold Overnight to Next Day)"], 
+    horizontal=True
+)
+
+is_btst = "BTST" in trade_mode
+
+# CPR Levels Setup
 high_prev = 24650.00
 low_prev = 24450.00
 close_prev = 24580.00
@@ -123,8 +127,6 @@ close_prev = 24580.00
 pivot = round((high_prev + low_prev + close_prev) / 3, 2)
 bc = round((high_prev + low_prev) / 2, 2)
 tc = round((pivot - bc) + pivot, 2)
-
-# TC आणि BC ची अलाइनमेंट (TC नेहमी मोठा असावा)
 top_cpr = max(tc, bc)
 bottom_cpr = min(tc, bc)
 
@@ -157,7 +159,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य CPR ट्रेड एक्झिक्युशन लॉजिक
+# ४. मुख्य ट्रॅकिंग आणि BTST लॉजिक
 # ==========================================
 spot_price = 24630.00
 try:
@@ -169,8 +171,12 @@ except Exception:
 
 st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
+# वर्तमाान वेळ (IST) काढणे
+now_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).time()
+market_close_limit = datetime.time(15, 15) # दुपारी ३:१५
+
 if st.session_state.day_over:
-    st.warning(f"🔒 आजचा CPR सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
     if st.button("🔄 उद्यासाठी रीसेट करा"):
         for k, v in defaults.items():
             st.session_state[k] = v
@@ -181,9 +187,9 @@ if st.session_state.day_over:
 current_ts = int(time.time()) + 19800
 is_active_trade = st.session_state.in_position
 
-# --- Waiting Mode (CPR Breakout / Bounce Check) ---
+# --- Waiting Mode ---
 if not is_active_trade:
-    st.info(f"⏳ CPR BREAKOUT ची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+    st.info(f"⏳ {trade_mode} सिस्टीम ब्रेकआऊटच्या प्रतीक्षेत आहे...")
     
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
@@ -199,8 +205,7 @@ if not is_active_trade:
             })
             p = c
             
-    # 🟢 1. CALL (CE) TRADES: जर प्राईस Top CPR (TC) च्या वर गेली
-    # 🔴 2. PUT (PE) TRADES: जर प्राईस Bottom CPR (BC) च्या खाली गेली
+    # CPR Breakout Check
     if spot_price > top_cpr or spot_price < bottom_cpr:
         trade_type = "CE" if spot_price > top_cpr else "PE"
         atm_strike = round(spot_price / 50) * 50
@@ -218,7 +223,7 @@ if not is_active_trade:
             st.session_state.option_token = token
             st.session_state.premium_entry = entry_premium
             st.session_state.current_sl = entry_premium - SL_POINTS
-            st.session_state.current_tgt = entry_premium + 30 # 1:2 Risk Reward
+            st.session_state.current_tgt = entry_premium + (45 if is_btst else 30) # BTST साठी मोठे टार्गेट
             st.session_state.sl_trailed_to_cost = False
             
             st.session_state.ohlc_data = []
@@ -248,27 +253,34 @@ else:
         except Exception:
             pass
 
-    # 🔒 Trailing SL Logic (+20 Points Profit वर SL Cost-to-Cost)
+    # Intraday Auto Square-Off Check (जर Intraday मोड असेल आणि वेळ ३:१५ झाली असेल)
+    if not is_btst and now_time >= market_close_limit:
+        st.warning("⏰ Intraday Square-off Time (3:15 PM) reached! Closing position...")
+        trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
+        st.session_state.total_day_pnl += trade_pnl
+        st.session_state.in_position = False
+        st.session_state.day_over = True
+        save_state(dict(st.session_state))
+        st.rerun()
+
+    # Trailing SL Logic (+20 Points)
     if not st.session_state.sl_trailed_to_cost:
         if (live_option_premium - st.session_state.premium_entry) >= 20:
             st.session_state.current_sl = st.session_state.premium_entry
-            st.session_state.current_tgt = st.session_state.premium_entry + 65 # 1:3 Dynamic Target
+            st.session_state.current_tgt = st.session_state.premium_entry + (80 if is_btst else 65)
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # Live Candle Update
     if st.session_state.ohlc_data:
         last_c = st.session_state.ohlc_data[-1]
-        old_high = last_c.get("high", live_option_premium)
-        old_low = last_c.get("low", live_option_premium)
-        
-        last_c["high"] = float(max(old_high, live_option_premium))
-        last_c["low"] = float(min(old_low, live_option_premium))
+        last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium))
+        last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium))
         last_c["close"] = float(live_option_premium)
 
     trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
 
-    st.write(f"### 🎯 Active Position ({st.session_state.trade_type}): **{st.session_state.selected_option}**")
+    mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
+    st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
@@ -282,7 +294,7 @@ else:
     
     st.markdown("---")
 
-    # Target/SL Auto Exit
+    # Target or SL Exit Check
     if live_option_premium >= st.session_state.current_tgt or live_option_premium <= st.session_state.current_sl:
         st.session_state.total_day_pnl += trade_pnl
         st.session_state.in_position = False
@@ -291,9 +303,9 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. स्थिर ट्रेडिंगव्ह्यू चार्ट इंजिन
+# ५. ट्रेडिंगव्ह्यू चार्ट इंजिन
 # ==========================================
-st.subheader("🕯️ Live TradingView Standalone Chart (CPR Strategy)")
+st.subheader("🕯️ Live TradingView Standalone Chart")
 
 tv_json_data = json.dumps(st.session_state.ohlc_data)
 entry_p = float(st.session_state.premium_entry)
@@ -338,9 +350,9 @@ raw_html = f"""<!DOCTYPE html>
         chart.timeScale().fitContent();
         
         if ({str(is_active_trade).lower()}) {{
-            candleSeries.createPriceLine({{ price: {entry_p}, color: '#2962FF', lineWidth: 2, title: 'BUY ENTRY' }});
+            candleSeries.createPriceLine({{ price: {entry_p}, color: '#2962FF', lineWidth: 2, title: 'ENTRY' }});
             candleSeries.createPriceLine({{ price: {tgt_p}, color: '#00C853', lineWidth: 2, title: 'TARGET' }});
-            candleSeries.createPriceLine({{ price: {sl_p}, color: '#D50000', lineWidth: 2, title: 'STOPLOSS' }});
+            candleSeries.createPriceLine({{ price: {sl_p}, color: '#D50000', lineWidth: 2, title: 'SL' }});
             candleSeries.createPriceLine({{ price: {live_p}, color: '{pnl_color}', lineWidth: 2, title: '{pnl_text}' }});
         }}
 
