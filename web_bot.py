@@ -146,14 +146,12 @@ try:
             st.rerun()
         st.stop()
 
-    # 🎯 **भारताची अचूक लाईव्ह वेळ सेट करणे (IST = UTC + 5:30 Hours / 19800 sec)**
     current_ts = int(time.time()) + 19800
 
     # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # डावीकडील मोकळी जागा भरण्यासाठी सलग ३५ कॅन्डल्सचा रिअल IST टाइम डेटा तयार करणे
         if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
             st.session_state.ohlc_data = []
             p = spot_price - 8.0
@@ -200,7 +198,6 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 
-                # ऑप्शन ट्रेड सुरू होताच रिअल IST वेळेसह कॅन्डल्स शिफ्ट करणे
                 st.session_state.ohlc_data = []
                 p = entry_premium - 4.0
                 for i in range(35, 0, -1):
@@ -279,10 +276,10 @@ try:
         c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
         st.markdown("---")
 
-    if len(st.session_state.ohlc_data) > 45:
+    if len(st.session_state.ohlc_data) > 60:
         st.session_state.ohlc_data.pop(0)
 
-    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट विजेट (IST रिअल-टाइम फॉरमॅट सह)**
+    # 🚀 **झूम-लॉक फंक्शनॅलिटीसह ट्रेडिंगव्ह्यू चार्ट इंजिन**
     st.subheader("🕯️ Live TradingView Standalone Chart")
     
     tv_json_data = json.dumps(st.session_state.ohlc_data)
@@ -291,76 +288,3 @@ try:
     <!DOCTYPE html>
     <html>
     <head>
-        <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-        <style>
-            body {{ margin: 0; padding: 0; background-color: #ffffff; }}
-            #chart_div {{ width: 100%; height: 400px; }}
-        </style>
-    </head>
-    <body>
-        <div id="chart_div"></div>
-        <script>
-            const container = document.getElementById('chart_div');
-            const chart = LightweightCharts.createChart(container, {{
-                width: container.clientWidth,
-                height: 400,
-                layout: {{ backgroundColor: '#ffffff', textColor: '#333333' }},
-                grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
-                crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-                priceScale: {{ position: 'right', borderVisible: true }},
-                timeScale: {{ 
-                    borderVisible: true, 
-                    timeVisible: true, 
-                    secondsVisible: true
-                }}
-            }});
-            
-            const candleSeries = chart.addCandlestickSeries({{
-                upColor: '#26a69a', downColor: '#ef5350',
-                borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-                wickUpColor: '#26a69a', wickDownColor: '#ef5350'
-            }});
-            
-            const chartData = {tv_json_data};
-            candleSeries.setData(chartData);
-            chart.timeScale().fitContent();
-            
-            window.addEventListener('resize', () => {{
-                chart.resize(container.clientWidth, 400);
-                chart.timeScale().fitContent();
-            }});
-        </script>
-    </body>
-    </html>
-    """
-    
-    components.html(tv_html_widget, height=420, scrolling=False)
-
-    if st.session_state.in_position:
-        if trade_pnl >= 0:
-            st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
-        else:
-            st.metric("Live Profit / Loss", f"-₹{abs(trade_pnl):.2f}", delta=f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
-            
-        st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        
-        # Exit Checks
-        if live_option_premium >= st.session_state.current_tgt:
-            st.balloons()
-            st.session_state.total_day_pnl += trade_pnl
-            st.session_state.in_position = False
-            st.session_state.day_over = True
-            save_state(dict(st.session_state))
-            st.rerun()
-        elif live_option_premium <= st.session_state.current_sl:
-            st.session_state.total_day_pnl += trade_pnl
-            st.session_state.in_position = False
-            st.session_state.day_over = True
-            save_state(dict(st.session_state))
-            st.rerun()
-
-except Exception as e:
-    st.error(f"डेटा ट्रॅक करताना अडचण: {e}")
-
-time.sleep(1)
-st.rerun()
