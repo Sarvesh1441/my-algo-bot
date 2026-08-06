@@ -7,7 +7,8 @@ from SmartApi import SmartConnect
 import json
 import os
 import random
-import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
+import plotly.graph_objects as go
 
 # ==========================================
 # १. पेज आणि डायनॅमिक कॅपिटल सेटिंग्ज
@@ -19,7 +20,7 @@ st.set_page_config(
 )
 
 STATE_FILE = "trade_state.json"
-INITIAL_CAPITAL = 100000  # मूळ सुरूवातीचे भांडवल
+INITIAL_CAPITAL = 100000  
 
 def save_state(state_data):
     try:
@@ -60,7 +61,9 @@ for key, default_val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = saved_data.get(key, default_val)
 
-# 💰 डायनॅमिक कॅपिटल आणि रिस्क मॅनेजमेंट (नफा-तोट्यानुसार बदलणारे)
+# 🔄 दर २ सेकंदाला लाईव्ह डेटा ऑटो-रिफ्रेश
+st_autorefresh(interval=2000, limit=None, key="live_data_refresher")
+
 CURRENT_CAPITAL = st.session_state.current_capital
 RISK_PER_TRADE = CURRENT_CAPITAL * 0.05  
 SL_POINTS = 15  
@@ -134,15 +137,12 @@ def fetch_latest_angel_token(strike_price, option_type):
         pass
     return None, None, None
 
-# ==========================================
-# ⚙️ ट्रेडिंग मोड निवड (Intraday किंवा BTST)
-# ==========================================
+# ⚙️ ट्रेडिंग मोड निवड
 trade_mode = st.radio(
     "🔄 Select Trading Mode:", 
     ["Intraday (Square-off at 3:15 PM)", "BTST (Hold Overnight to Next Day)"], 
     horizontal=True
 )
-
 is_btst = "BTST" in trade_mode
 
 # CPR Levels Setup
@@ -255,18 +255,16 @@ else:
         except Exception:
             pass
 
-    # Intraday Auto Square-Off Check
     if not is_btst and now_time >= market_close_limit:
         st.warning("⏰ Intraday Square-off Time (3:15 PM) reached! Closing position...")
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
         st.session_state.total_day_pnl += trade_pnl
-        st.session_state.current_capital += trade_pnl  # 💰 कॅपिटलमध्ये P&L जोडणे
+        st.session_state.current_capital += trade_pnl  
         st.session_state.in_position = False
         st.session_state.day_over = True
         save_state(dict(st.session_state))
         st.rerun()
 
-    # Trailing SL Logic
     if not st.session_state.sl_trailed_to_cost:
         if (live_option_premium - st.session_state.premium_entry) >= 20:
             st.session_state.current_sl = st.session_state.premium_entry
@@ -297,75 +295,44 @@ else:
     
     st.markdown("---")
 
-    # Target/SL Auto Exit (कॅपिटल अपडेट होणारी महत्त्वाची लाईन)
     if live_option_premium >= st.session_state.current_tgt or live_option_premium <= st.session_state.current_sl:
         st.session_state.total_day_pnl += trade_pnl
-        st.session_state.current_capital += trade_pnl  # 💰 मुख्य कॅपिटलमध्ये प्रॉफिट/लॉस ऍड करणे
+        st.session_state.current_capital += trade_pnl  
         st.session_state.in_position = False
         st.session_state.day_over = True
         save_state(dict(st.session_state))
         st.rerun()
 
 # ==========================================
-# ५. स्थिर ट्रेडिंगव्ह्यू चार्ट इंजिन
+# ५. कधीही गायब न होणारा Plotly लाईव्ह चार्ट
 # ==========================================
-st.subheader("🕯️ Live TradingView Standalone Chart")
+st.subheader("🕯️ Live Stable Trading Chart")
 
-tv_json_data = json.dumps(st.session_state.ohlc_data)
-entry_p = float(st.session_state.premium_entry)
-sl_p = float(st.session_state.current_sl)
-tgt_p = float(st.session_state.current_tgt)
-live_p = float(live_option_premium if is_active_trade else spot_price)
+if st.session_state.ohlc_data:
+    times = [datetime.datetime.fromtimestamp(d["time"] - 19800) for d in st.session_state.ohlc_data]
+    opens = [d["open"] for d in st.session_state.ohlc_data]
+    highs = [d["high"] for d in st.session_state.ohlc_data]
+    lows = [d["low"] for d in st.session_state.ohlc_data]
+    closes = [d["close"] for d in st.session_state.ohlc_data]
 
-pnl_color = '#00E676' if trade_pnl >= 0 else '#FF1744'
-pnl_text = f"LIVE P&L: +₹{trade_pnl:.2f}" if trade_pnl >= 0 else f"LIVE P&L: -₹{abs(trade_pnl):.2f}"
+    fig = go.Figure(data=[go.Candlestick(
+        x=times, open=opens, high=highs, low=lows, close=closes,
+        increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
+    )])
 
-raw_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <style>
-        body {{ margin: 0; padding: 0; background-color: #ffffff; }}
-        #chart_div {{ width: 100%; height: 420px; }}
-    </style>
-</head>
-<body>
-    <div id="chart_div"></div>
-    <script>
-        const container = document.getElementById('chart_div');
-        const chart = LightweightCharts.createChart(container, {{
-            width: container.clientWidth,
-            height: 420,
-            layout: {{ backgroundColor: '#ffffff', textColor: '#333333' }},
-            grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
-            crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-            priceScale: {{ position: 'right', borderVisible: true }},
-            timeScale: {{ borderVisible: true, timeVisible: true, barSpacing: 8 }}
-        }});
-        
-        const candleSeries = chart.addCandlestickSeries({{
-            upColor: '#26a69a', downColor: '#ef5350',
-            borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-            wickUpColor: '#26a69a', wickDownColor: '#ef5350'
-        }});
-        
-        const chartData = {tv_json_data};
-        candleSeries.setData(chartData);
-        chart.timeScale().fitContent();
-        
-        if ({str(is_active_trade).lower()}) {{
-            candleSeries.createPriceLine({{ price: {entry_p}, color: '#2962FF', lineWidth: 2, title: 'ENTRY' }});
-            candleSeries.createPriceLine({{ price: {tgt_p}, color: '#00C853', lineWidth: 2, title: 'TARGET' }});
-            candleSeries.createPriceLine({{ price: {sl_p}, color: '#D50000', lineWidth: 2, title: 'SL' }});
-            candleSeries.createPriceLine({{ price: {live_p}, color: '{pnl_color}', lineWidth: 2, title: '{pnl_text}' }});
-        }}
+    if is_active_trade:
+        fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
+        fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
+        fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
 
-        window.addEventListener('resize', () => chart.resize(container.clientWidth, 420));
-    </script>
-</body>
-</html>"""
-
-components.html(raw_html, height=430, scrolling=False)
+    fig.update_layout(
+        xaxis_rangeslider_visible=False,
+        height=420,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='white',
+        plot_bgcolor='white'
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 if is_active_trade:
     if trade_pnl >= 0:
