@@ -66,7 +66,7 @@ if smart_api is None:
     st.stop()
 
 # ==========================================
-# ३. एक्सपायरी शोधणे
+# ३. एक्सपायरी आणि टोकन शोधणे
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_latest_angel_token(strike_price, option_type):
@@ -101,7 +101,7 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# 🔒 सुरक्षित डेटा इनिशियलायझेशन
+# 🔒 सुरक्षित डेटा इनिशियलायझेशन (कंस आणि कोट पूर्णपणे फिक्स)
 saved_data = load_state()
 
 defaults = {
@@ -116,3 +116,45 @@ defaults = {
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
+    "ohlc_data": [],
+    "last_candle_time": 0
+}
+
+for key, default_val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = saved_data.get(key, default_val)
+
+# ==========================================
+# ४. मुख्य डेटा ट्रॅकिंग आणि परफेक्ट चार्ट
+# ==========================================
+try:
+    spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
+    spot_price = float(spot_data["data"]["ltp"]) if spot_data.get("status") and spot_data.get("data") else 24630.00
+    st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
+
+    if st.session_state.day_over:
+        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        if st.button("🔄 उद्यासाठी रीसेट करा"):
+            for k, v in defaults.items():
+                st.session_state[k] = v
+            save_state(dict(st.session_state))
+            st.rerun()
+        st.stop()
+
+    # --- Waiting Mode ---
+    if not st.session_state.in_position:
+        st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        
+        if spot_price > tc or spot_price < bc:
+            trade_type = "CE" if spot_price > tc else "PE"
+            atm_strike = round(spot_price / 50) * 50
+            itm_strike = atm_strike - 50 if trade_type == "CE" else atm_strike + 50
+            
+            token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
+            if token and symbol_name:
+                opt_data = smart_api.ltpData("NFO", symbol_name, token)
+                entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
+                
+                # सुरुवातीला १५ बारीक हिस्टॉलिकल कॅन्डल्स सेट करणे
+                base_data = []
+                now
