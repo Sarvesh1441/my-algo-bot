@@ -26,8 +26,11 @@ if calculated_lots < 1:
 LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
 
 def save_state(state_data):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state_data, f)
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(state_data, f)
+    except:
+        pass
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -98,7 +101,7 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# 🔒 Session State Initialization
+# 🔒 सुरक्षित डेटा इनिशियलायझेशन
 saved_data = load_state()
 
 defaults = {
@@ -129,8 +132,8 @@ try:
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
     if st.session_state.day_over:
-        st.warning(f"🔒 आजचा ठेवा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        if st.button("🔄 रीसेट करा"):
+        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        if st.button("🔄 उद्यासाठी रीसेट करा"):
             for k, v in defaults.items():
                 st.session_state[k] = v
             save_state(dict(st.session_state))
@@ -151,7 +154,6 @@ try:
                 opt_data = smart_api.ltpData("NFO", symbol_name, token)
                 entry_premium = float(opt_data["data"]["ltp"]) if opt_data.get("status") and opt_data.get("data") else 140.00
                 
-                # TradingView ला UNIX timestamp लागतो (सेकंदांमध्ये)
                 current_ts = int(time.time())
                 
                 st.session_state.trade_type = trade_type
@@ -179,22 +181,20 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        # 🕯️ TradingView सुसंगत डेटा मॅनेजमेंट
         current_ts = int(time.time())
         
-        if not st.session_state.ohlc_data:
-            st.session_state.ohlc_data.append({
+        # सुरक्षित कॅन्डल मॅनेजमेंट (एरर फिक्स)
+        if not st.session_state.ohlc_data or not isinstance(st.session_state.ohlc_data[0], dict) or "high" not in st.session_state.ohlc_data[0]:
+            st.session_state.ohlc_data = [{
                 "time": current_ts, "open": live_option_premium, "high": live_option_premium, "low": live_option_premium, "close": live_option_premium
-            })
+            }]
         else:
             last_candle = st.session_state.ohlc_data[-1]
-            # जर चालू मिनिट असेल तर त्याच कॅन्डलमध्ये अपडेट करणे
-            last_candle["high"] = max(last_candle["high"], live_option_premium)
-            last_candle["low"] = min(last_candle["low"], live_option_premium)
+            last_candle["high"] = max(last_candle.get("high", live_option_premium), live_option_premium)
+            last_candle["low"] = min(last_candle.get("low", live_option_premium), live_option_premium)
             last_candle["close"] = live_option_premium
             
-            # दर १० सेकंदांनी नवी कॅन्डल जोडून पुढे सरकवणे
-            if current_ts - last_candle["time"] >= 10:
+            if current_ts - last_candle.get("time", current_ts) >= 10:
                 st.session_state.ohlc_data.append({
                     "time": current_ts, "open": live_option_premium, "high": live_option_premium, "low": live_option_premium, "close": live_option_premium
                 })
@@ -221,13 +221,11 @@ try:
         
         st.markdown("---")
         
-        # 🚀 **खराखुरा TradingView Lightweight Chart (HTML/JS विजेट)**
+        # 🚀 TradingView Chart Component
         st.subheader("🕯️ Live TradingView Candlestick Chart")
         
-        # JSON डेटा तयार करणे
         tv_data = json.dumps(st.session_state.ohlc_data)
         
-        # ओरिजिनल ट्रेडिंगव्ह्यू लायब्ररी वापरून तयार केलेले चार्ट विजेट
         html_code = f"""
         <!DOCTYPE html>
         <html>
@@ -261,7 +259,6 @@ try:
                 const rawData = {tv_data};
                 candleSeries.setData(rawData);
                 
-                // ऑटो रिस्पॉन्सिव्ह विड्थ
                 window.addEventListener('resize', () => {{
                     chart.resize(document.getElementById('chart').clientWidth, 420);
                 }});
@@ -270,7 +267,6 @@ try:
         </html>
         """
         
-        # डॅशबोर्डवर इम्बेड करणे
         components.html(html_code, height=440, scrolling=False)
 
         if trade_pnl >= 0:
