@@ -29,21 +29,12 @@ def save_state(state_data):
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    return {
-        "in_position": False, 
-        "trade_type": None, 
-        "selected_option": "", 
-        "option_token": "",
-        "premium_entry": 0.0, 
-        "entry_spot_price": 0.0, 
-        "total_day_pnl": 0.0,
-        "day_over": False,
-        "current_sl": 0.0,
-        "current_tgt": 0.0,           # डायनॅमिक टार्गेट ट्रॅक करण्यासाठी
-        "sl_trailed_to_cost": False  
-    }
+        try:
+            with open(STATE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
 
 st.title("📊 My Live Algo Trailing Dashboard")
 st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | {calculated_lots} Lots | 🎯 डायनॅमिक १:३ टार्गेट सिस्टीम")
@@ -105,11 +96,26 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# स्टेट लोड करणे
+# 🔒 सुरक्षित Session State Initialization (एरर फिक्स)
 saved_data = load_state()
-if 'in_position' not in st.session_state:
-    for key, val in saved_data.items():
-        st.session_state[key] = val
+
+defaults = {
+    "in_position": False,
+    "trade_type": None,
+    "selected_option": "",
+    "option_token": "",
+    "premium_entry": 0.0,
+    "entry_spot_price": 0.0,
+    "total_day_pnl": 0.0,
+    "day_over": False,
+    "current_sl": 0.0,
+    "current_tgt": 0.0,
+    "sl_trailed_to_cost": False
+}
+
+for key, default_val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
 # ४. मुख्य डेटा ट्रॅकिंग आणि सुधारित लॉजिक
@@ -122,10 +128,8 @@ try:
     if st.session_state.day_over:
         st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा"):
-            st.session_state.in_position = False
-            st.session_state.day_over = False
-            st.session_state.total_day_pnl = 0.0
-            st.session_state.sl_trailed_to_cost = False
+            for k, v in defaults.items():
+                st.session_state[k] = v
             save_state(dict(st.session_state))
             st.rerun()
         st.stop()
@@ -148,8 +152,8 @@ try:
                 st.session_state.selected_option = symbol_name
                 st.session_state.option_token = token
                 st.session_state.premium_entry = entry_premium
-                st.session_state.current_sl = entry_premium - SL_POINTS  # मूळ SL (-15)
-                st.session_state.current_tgt = entry_premium + 30        # मूळ प्राथमिक टार्गेट
+                st.session_state.current_sl = entry_premium - SL_POINTS
+                st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
@@ -166,11 +170,10 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        # 🔄 नियम: जसा प्रीमियम २० पॉईंट्स प्लस जाईल, SL कॉस्टवर येईल आणि टार्गेट तिथून १:३ (४५ पॉईंट्स) होईल.
         if not st.session_state.sl_trailed_to_cost:
             if (live_option_premium - st.session_state.premium_entry) >= 20:
-                st.session_state.current_sl = st.session_state.premium_entry  # SL Cost to Cost
-                st.session_state.current_tgt = st.session_state.premium_entry + 65  # २० आधीचे + ४५ (१:३) = ६५ पॉईंट्स टार्गेट!
+                st.session_state.current_sl = st.session_state.premium_entry
+                st.session_state.current_tgt = st.session_state.premium_entry + 65
                 st.session_state.sl_trailed_to_cost = True
                 save_state(dict(st.session_state))
 
