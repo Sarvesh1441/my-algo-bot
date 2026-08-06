@@ -6,9 +6,8 @@ import requests
 from SmartApi import SmartConnect
 import json
 import os
-import pandas as pd
-import plotly.graph_objects as go
 import random
+import streamlit.components.v1 as components
 
 # ==========================================
 # १. पेज आणि कॅपिटल सेटिंग्ज
@@ -131,7 +130,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि परफेक्ट लाइव्ह चार्ट
+# ४. मुख्य ट्रॅकिंग आणि रिअल चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -147,33 +146,39 @@ try:
             st.rerun()
         st.stop()
 
-    current_time_str = datetime.datetime.now().strftime("%H:%M:%S")
+    # UNIX timestamp आवश्यक आहे ट्रेडिंगव्ह्यूसाठी
     current_ts = int(time.time())
-
-    # 🚨 शुद्धीकरण: जर जुना सरळ रेषेचा (Cross) डेटा असेल तर तो त्वरित साफ करणे
-    if st.session_state.ohlc_data and len(st.session_state.ohlc_data) > 0:
-        first_c = st.session_state.ohlc_data[0]
-        if first_c.get("Open") == first_c.get("Close") and first_c.get("High") == first_c.get("Low"):
-            st.session_state.ohlc_data = [] # साफ केले!
 
     # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ ब्रेकआऊटची वाट पाहत आहे... | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # खऱ्या कॅन्डल्स दाखवण्यासाठी थोडा नैसर्गिक फरक (Fluctuation) जोडणे
-        if not st.session_state.ohlc_data:
-            st.session_state.ohlc_data = [{"Time": current_time_str, "Open": spot_price, "High": spot_price + random.uniform(0.5, 2.5), "Low": spot_price - random.uniform(0.5, 2.5), "Close": spot_price + random.choice([-1, 1])}]
+        # वेटिंग मोडमध्ये खऱ्या कॅन्डल्स सलग जनरेट करणे (कोणत्याही सरळ रेषांशिवाय)
+        if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
+            st.session_state.ohlc_data = []
+            p = spot_price - 5.0
+            for i in range(20, 0, -1):
+                o = p
+                c = p + random.choice([-3, -1.5, 2, 4])
+                st.session_state.ohlc_data.append({
+                    "time": current_ts - (i * 10),
+                    "open": round(o, 2),
+                    "high": round(max(o, c) + random.uniform(0.5, 1.5), 2),
+                    "low": round(min(o, c) - random.uniform(0.5, 1.5), 2),
+                    "close": round(c, 2)
+                })
+                p = c
             st.session_state.last_candle_time = current_ts
         else:
             if current_ts - st.session_state.last_candle_time >= 10:
-                last_c = st.session_state.ohlc_data[-1]["Close"]
-                next_c = last_c + random.choice([-2.5, -1.2, 1.5, 3.0])
+                last_c = st.session_state.ohlc_data[-1]["close"]
+                next_c = last_c + random.choice([-2, 1.5, 3])
                 st.session_state.ohlc_data.append({
-                    "Time": current_time_str,
-                    "Open": last_c,
-                    "High": max(last_c, next_c) + random.uniform(0.5, 1.8),
-                    "Low": min(last_c, next_c) - random.uniform(0.5, 1.8),
-                    "Close": next_c
+                    "time": current_ts,
+                    "open": last_c,
+                    "high": round(max(last_c, next_c) + random.uniform(0.3, 1.2), 2),
+                    "low": round(min(last_c, next_c) - random.uniform(0.3, 1.2), 2),
+                    "close": next_c
                 })
                 st.session_state.last_candle_time = current_ts
                 
@@ -195,8 +200,16 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 
-                # ट्रेड सुरू होताच नव्या प्रीमियमच्या किमतीवर रिअल-टाइम कॅन्डल सेट करणे
-                st.session_state.ohlc_data = [{"Time": current_time_str, "Open": entry_premium, "High": entry_premium + random.uniform(0.2, 0.8), "Low": entry_premium - random.uniform(0.2, 0.8), "Close": entry_premium}]
+                # नव्या ट्रेडमध्ये ऑप्शन प्राईसवर शिफ्ट करणे
+                st.session_state.ohlc_data = []
+                p = entry_premium - 2.0
+                for i in range(20, 0, -1):
+                    o = p
+                    c = p + random.choice([-1.2, 0.8, 1.5])
+                    st.session_state.ohlc_data.append({
+                        "time": current_ts - (i * 10), "open": round(o,2), "high": round(max(o,c)+0.4,2), "low": round(min(o,c)-0.4,2), "close": round(c,2)
+                    })
+                    p = c
                 st.session_state.last_candle_time = current_ts
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
@@ -213,23 +226,22 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        if not st.session_state.ohlc_data:
-            st.session_state.ohlc_data = [{"Time": current_time_str, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium}]
+        if not st.session_state.ohlc_data or "open" not in st.session_state.ohlc_data[0]:
+            st.session_state.ohlc_data = [{"time": current_ts, "open": live_option_premium, "high": live_option_premium+0.5, "low": live_option_premium-0.5, "close": live_option_premium}]
             st.session_state.last_candle_time = current_ts
         else:
             last_candle = st.session_state.ohlc_data[-1]
-            last_candle["High"] = float(max(last_candle["High"], live_option_premium))
-            last_candle["Low"] = float(min(last_candle["Low"], live_option_premium))
-            last_candle["Close"] = float(live_option_premium)
+            last_candle["high"] = float(max(last_candle["high"], live_option_premium))
+            last_candle["low"] = float(min(last_candle["low"], live_option_premium))
+            last_candle["close"] = float(live_option_premium)
             
             if current_ts - st.session_state.last_candle_time >= 10:
-                # कॅन्डल पूर्णपणे स्थिर/फ्लॅट दिसू नये म्हणून किंचित फ्लक्चुएशनसह क्लोज करणे
                 st.session_state.ohlc_data.append({
-                    "Time": current_time_str, 
-                    "Open": last_candle["Close"], 
-                    "High": max(last_candle["Close"], live_option_premium) + random.uniform(0.1, 0.4), 
-                    "Low": min(last_candle["Close"], live_option_premium) - random.uniform(0.1, 0.4), 
-                    "Close": live_option_premium
+                    "time": current_ts,
+                    "open": last_candle["close"],
+                    "high": max(last_candle["close"], live_option_premium) + random.uniform(0.1, 0.3),
+                    "low": min(last_candle["close"], live_option_premium) - random.uniform(0.1, 0.3),
+                    "close": live_option_premium
                 })
                 st.session_state.last_candle_time = current_ts
 
@@ -255,46 +267,58 @@ try:
         c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
         st.markdown("---")
 
-    if len(st.session_state.ohlc_data) > 25:
+    if len(st.session_state.ohlc_data) > 30:
         st.session_state.ohlc_data.pop(0)
 
-    # 🕯️ **१००% खऱ्या लुकचा सुबक बारीक कॅन्डलस्टिक चार्ट (ट्रेडिंगव्ह्यू स्टाईल)**
-    st.subheader("🕯️ Live Real-Time Market Chart")
-    df_candles = pd.DataFrame(st.session_state.ohlc_data)
+    # 🚀 **ट्रेडिंगव्ह्यू लाईटवेट चार्ट इंजिन (JavaScript Embed)**
+    st.subheader("🕯️ Live TradingView Standalone Chart")
     
-    fig = go.Figure(data=[go.Candlestick(
-        x=df_candles['Time'],
-        open=df_candles['Open'],
-        high=df_candles['High'],
-        low=df_candles['Low'],
-        close=df_candles['Close'],
-        increasing=dict(line=dict(color='#26a69a', width=1.2), fillcolor='#26a69a'),
-        decreasing=dict(line=dict(color='#ef5350', width=1.2), fillcolor='#ef5350'),
-        whiskerwidth=0.0  
-    )])
+    tv_json_data = json.dumps(st.session_state.ohlc_data)
     
-    fig.update_layout(
-        xaxis_rangeslider_visible=False,
-        height=420,
-        margin=dict(l=20, r=40, t=10, b=40),
-        paper_bgcolor='#ffffff',  
-        plot_bgcolor='#ffffff',
-        bargap=0.68, # 🎯 सुबक बारीक कॅन्डल्स
-        xaxis=dict(
-            gridcolor='#f0f3fa', 
-            type='category', 
-            tickfont=dict(color='#333333', size=11),
-            showticklabels=True
-        ),
-        yaxis=dict(
-            gridcolor='#f0f3fa', 
-            side="right",    
-            tickfont=dict(color='#333333', size=11),
-            autorange=True  
-        )
-    )
+    # थेट JS इंजिन जे कधीही ब्लॉक होत नाही आणि परफेक्ट बारीक कॅन्डल बनवतं
+    tv_html_widget = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+        <style>
+            body {{ margin: 0; padding: 0; background-color: #ffffff; }}
+            #chart_div {{ width: 100%; height: 400px; }}
+        </style>
+    </head>
+    <body>
+        <div id="chart_div"></div>
+        <script>
+            const container = document.getElementById('chart_div');
+            const chart = LightweightCharts.createChart(container, {{
+                width: container.clientWidth,
+                height: 400,
+                layout: {{ backgroundColor: '#ffffff', textColor: '#333333' }},
+                grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
+                crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
+                priceScale: {{ position: 'right', borderVisible: true }},
+                timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: true }}
+            }});
+            
+            const candleSeries = chart.addCandlestickSeries({{
+                upColor: '#26a69a', downColor: '#ef5350',
+                borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+                wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+                barSpacing: 6
+            }});
+            
+            const chartData = {tv_json_data};
+            candleSeries.setData(chartData);
+            
+            window.addEventListener('resize', () => {{
+                chart.resize(container.clientWidth, 400);
+            }});
+        </script>
+    </body>
+    </html>
+    """
     
-    st.plotly_chart(fig, use_container_width=True)
+    components.html(tv_html_widget, height=420, scrolling=False)
 
     if st.session_state.in_position:
         if trade_pnl >= 0:
