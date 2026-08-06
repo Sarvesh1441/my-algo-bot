@@ -188,5 +188,69 @@ try:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
         c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
-        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta="Cost-to-Cost 🔒" if st.session_state.sl_trailed_to_cost else "मूळ SL ⚠️")
-        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta="१:३ टार्गेट
+        
+        sl_delta_text = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
+        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_delta_text)
+        
+        tgt_delta_text = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
+        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_delta_text)
+        
+        st.markdown("---")
+        
+        # 🚀 TradingView Chart Widget
+        st.subheader("🕯️ Live TradingView Chart")
+        
+        tv_symbol = f"NSE:{st.session_state.selected_option}"
+        
+        tv_widget_html = f"""
+        <div class="tradingview-widget-container">
+          <div id="tradingview_chart"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({{
+            "width": "100%",
+            "height": 450,
+            "symbol": "{tv_symbol}",
+            "interval": "5",
+            "timezone": "Asia/Kolkata",
+            "theme": "light",
+            "style": "1",
+            "locale": "in",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_chart"
+          }});
+          </script>
+        </div>
+        """
+        
+        components.html(tv_widget_html, height=470, scrolling=False)
+
+        if trade_pnl >= 0:
+            st.metric("Live Profit / Loss", f"+₹{trade_pnl:.2f}", delta=f"+₹{trade_pnl:.2f}")
+        else:
+            st.metric("Live Profit / Loss", f"-₹{abs(trade_pnl):.2f}", delta=f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
+            
+        st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        
+        # Exit Checks
+        if live_option_premium >= st.session_state.current_tgt:
+            st.balloons()
+            st.session_state.total_day_pnl += trade_pnl
+            st.session_state.in_position = False
+            st.session_state.day_over = True
+            save_state(dict(st.session_state))
+            st.rerun()
+        elif live_option_premium <= st.session_state.current_sl:
+            st.session_state.total_day_pnl += trade_pnl
+            st.session_state.in_position = False
+            st.session_state.day_over = True
+            save_state(dict(st.session_state))
+            st.rerun()
+
+except Exception as e:
+    st.error(f"डेटा ट्रॅक करताना अडचण: {e}")
+
+time.sleep(1)
+st.rerun()
