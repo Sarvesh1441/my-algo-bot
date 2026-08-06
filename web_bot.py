@@ -154,7 +154,7 @@ if st.session_state.day_over:
         st.rerun()
     st.stop()
 
-# 🎯 अचूक भारतीय वेळ (IST = UTC + 5:30 Hours / 19800 sec)
+# 🎯 अचूक भारतीय वेळ (IST)
 current_ts = int(time.time()) + 19800
 
 # --- Waiting Mode ---
@@ -195,8 +195,6 @@ if not st.session_state.in_position:
         token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
         if token and symbol_name:
             opt_data = smart_api.ltpData("NFO", symbol_name, token)
-            
-            # 🎯 100% शॉर्ट लाईन फिक्स - ही लाईन आता कधीही कट होणार नाही!
             entry_premium = 140.00
             if opt_data and opt_data.get("status") and opt_data.get("data"):
                 entry_premium = float(opt_data["data"]["ltp"])
@@ -292,10 +290,16 @@ if len(st.session_state.ohlc_data) > 60:
     st.session_state.ohlc_data.pop(0)
 
 # ==========================================
-# ५. १००% सुरक्षित ट्रेडिंगव्ह्यू विजेट इंजिन
+# ५. Entry, SL & Target लाइन्स असलेला ट्रेडिंगव्ह्यू चार्ट
 # ==========================================
 st.subheader("🕯️ Live TradingView Standalone Chart")
 tv_json_data = json.dumps(st.session_state.ohlc_data)
+
+# लाईन्सच्या किमती पास करणे
+entry_p = float(st.session_state.premium_entry)
+sl_p = float(st.session_state.current_sl)
+tgt_p = float(st.session_state.current_tgt)
+has_pos = "true" if st.session_state.in_position else "false"
 
 raw_html = f"""<!DOCTYPE html>
 <html>
@@ -303,7 +307,7 @@ raw_html = f"""<!DOCTYPE html>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {{ margin: 0; padding: 0; background-color: #ffffff; }}
-        #chart_div {{ width: 100%; height: 400px; }}
+        #chart_div {{ width: 100%; height: 420px; }}
     </style>
 </head>
 <body>
@@ -313,32 +317,69 @@ raw_html = f"""<!DOCTYPE html>
         const container = document.getElementById('chart_div');
         const chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
-            height: 400,
+            height: 420,
             layout: {{ backgroundColor: '#ffffff', textColor: '#333333' }},
             grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
             crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
             priceScale: {{ position: 'right', borderVisible: true }},
             timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: true }}
         }});
+        
         const candleSeries = chart.addCandlestickSeries({{
             upColor: '#26a69a', downColor: '#ef5350',
             borderUpColor: '#26a69a', borderDownColor: '#ef5350',
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         }});
+        
         const chartData = {tv_json_data};
         candleSeries.setData(chartData);
+        
+        // 🎯 **चार्टवर Entry, SL आणि Target च्या रंगीत लाइन्स जोडणे**
+        if ({has_pos}) {{
+            // 🔵 ENTRY PRICE LINE
+            candleSeries.createPriceLine({{
+                price: {entry_p},
+                color: '#2962FF',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'BUY ENTRY: ₹{entry_p}'
+            }});
+
+            // 🟢 TARGET LINE
+            candleSeries.createPriceLine({{
+                price: {tgt_p},
+                color: '#00E676',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'TARGET: ₹{tgt_p}'
+            }});
+
+            // 🔴 STOP LOSS LINE
+            candleSeries.createPriceLine({{
+                price: {sl_p},
+                color: '#FF1744',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'STOPLOSS: ₹{sl_p}'
+            }});
+        }}
+
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => {{
             if (range) {{ window.userHasZoomed = true; }}
         }});
         if (!window.userHasZoomed) {{ chart.timeScale().fitContent(); }}
+        
         window.addEventListener('resize', () => {{
-            chart.resize(container.clientWidth, 400);
+            chart.resize(container.clientWidth, 420);
         }});
     </script>
 </body>
 </html>"""
 
-components.html(raw_html, height=420, scrolling=False)
+components.html(raw_html, height=430, scrolling=False)
 
 if st.session_state.in_position:
     if trade_pnl >= 0:
