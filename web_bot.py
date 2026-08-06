@@ -54,10 +54,15 @@ def init_api():
     PIN = "1441"
     TOTP_SECRET = "WB2MKZTUH7CLPLDPUMU3LA542Y"
     
-    smart_api = SmartConnect(api_key=API_KEY)
-    totp = pyotp.TOTP(TOTP_SECRET).now()
-    session_data = smart_api.generateSession(CLIENT_ID, PIN, totp)
-    return smart_api if session_data.get("status") else None
+    try:
+        smart_api = SmartConnect(api_key=API_KEY)
+        totp = pyotp.TOTP(TOTP_SECRET).now()
+        session_data = smart_api.generateSession(CLIENT_ID, PIN, totp)
+        if session_data.get("status"):
+            return smart_api
+    except:
+        pass
+    return None
 
 smart_api = init_api()
 
@@ -101,7 +106,7 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# 🔒 सुरक्षित डेटा इनिशियलायझेशन (कंस आणि कोट पूर्णपणे फिक्स)
+# 🔒 सुरक्षित डेटा इनिशियलायझेशन
 saved_data = load_state()
 
 defaults = {
@@ -133,7 +138,7 @@ try:
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
     if st.session_state.day_over:
-        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        st.warning(f"🔒 आजचा ठेवा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
         if st.button("🔄 उद्यासाठी रीसेट करा"):
             for k, v in defaults.items():
                 st.session_state[k] = v
@@ -157,4 +162,39 @@ try:
                 
                 # सुरुवातीला १५ बारीक हिस्टॉलिकल कॅन्डल्स सेट करणे
                 base_data = []
-                now
+                now = datetime.datetime.now()
+                for i in range(15, 0, -1):
+                    t_str = (now - datetime.timedelta(seconds=i*10)).strftime("%H:%M:%S")
+                    base_data.append({
+                        "Time": t_str, "Open": entry_premium, "High": entry_premium + 0.5, "Low": entry_premium - 0.5, "Close": entry_premium
+                    })
+                
+                st.session_state.trade_type = trade_type
+                st.session_state.selected_option = symbol_name
+                st.session_state.option_token = token
+                st.session_state.premium_entry = entry_premium
+                st.session_state.current_sl = entry_premium - SL_POINTS
+                st.session_state.current_tgt = entry_premium + 30
+                st.session_state.sl_trailed_to_cost = False
+                st.session_state.ohlc_data = base_data
+                st.session_state.last_candle_time = int(time.time())
+                st.session_state.in_position = True
+                save_state(dict(st.session_state))
+                st.rerun()
+                
+    # --- Active Tracking Mode ---
+    else:
+        live_option_premium = 0.0
+        if st.session_state.option_token:
+            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
+            if opt_data.get("status") and opt_data.get("data"):
+                live_option_premium = float(opt_data["data"]["ltp"])
+        
+        if live_option_premium == 0.0:
+            live_option_premium = st.session_state.premium_entry
+
+        current_time_str = datetime.datetime.now().strftime("%H:%M:%S")
+        current_ts = int(time.time())
+        
+        if not st.session_state.ohlc_data:
+            st.session_state.ohlc_data =
