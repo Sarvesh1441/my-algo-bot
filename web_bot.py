@@ -13,9 +13,7 @@ import os
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
 STATE_FILE = "trade_state.json"
-
-# 🎯 १ लॉट ६५ चा असल्यामुळे ५ लॉटसाठी एकूण ३२५ क्वांटिटी (६५ * ५ = ३२५)
-LOT_SIZE = 325 
+LOT_SIZE = 325  # ५ लॉट (६५ * ५)
 
 def save_state(state_data):
     with open(STATE_FILE, "w") as f:
@@ -32,11 +30,12 @@ def load_state():
         "option_token": "",
         "premium_entry": 0.0, 
         "entry_spot_price": 0.0, 
-        "total_day_pnl": 0.0
+        "total_day_pnl": 0.0,
+        "day_over": False  # दिवसाचा ट्रेड संपला की नाही हे ट्रॅक करण्यासाठी
     }
 
 st.title("📊 My Live Algo Paper Trading Dashboard")
-st.subheader(f"Angel One Live API | ITM ऑप्शन्स ट्रॅकिंग (५ लॉट - एकूण क्वांटिटी: {LOT_SIZE})")
+st.subheader(f"Angel One Live API | १ ट्रेड प्रति दिवस नियम (Qty: {LOT_SIZE})")
 
 # ==========================================
 # २. API लॉगिन
@@ -58,11 +57,9 @@ smart_api = init_api()
 if smart_api is None:
     st.error("❌ Angel One लॉगिन अयशस्वी! कृपया तुमचे डिटेल्स तपासा.")
     st.stop()
-else:
-    st.success("✅ Angel One Live API यशस्वीरित्या कनेक्ट झाली आहे!")
 
 # ==========================================
-# ३. सर्वात जवळची एक्सपायरी आणि टोकन शोधणारे फंक्शन
+# ३. सर्वात जवळची एक्सपायरी शोधणे
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_latest_angel_token(strike_price, option_type):
@@ -91,8 +88,7 @@ def fetch_latest_angel_token(strike_price, option_type):
             valid_options.sort(key=lambda x: x[0])
             latest_expiry = valid_options[0] 
             return latest_expiry[1], latest_expiry[2], latest_expiry[0].strftime("%d-%b-%Y")
-            
-    except Exception as e:
+    except:
         pass
     return None, None, None
 
@@ -105,7 +101,7 @@ col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 
 st.markdown("---")
 
-# पोझिशन लोड करणे
+# पोझिशन स्टेट लोड करणे
 saved_data = load_state()
 if 'in_position' not in st.session_state:
     st.session_state.in_position = saved_data.get("in_position", False)
@@ -115,6 +111,7 @@ if 'in_position' not in st.session_state:
     st.session_state.premium_entry = saved_data.get("premium_entry", 0.0)
     st.session_state.entry_spot_price = saved_data.get("entry_spot_price", 0.0)
     st.session_state.total_day_pnl = saved_data.get("total_day_pnl", 0.0)
+    st.session_state.day_over = saved_data.get("day_over", False)
 
 # ==========================================
 # ४. मुख्य डेटा ट्रॅकिंग आणि ITM लॉजिक
@@ -125,6 +122,23 @@ try:
     
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
+    # 🛑 नियम: जर आजचा ट्रेड संपला असेल तर इथूनच सिस्टीम लॉक करा
+    if st.session_state.day_over:
+        st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! नवीन एन्ट्री ब्लॉक केली आहे. | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
+        # डॅशबोर्ड रीसेट करण्यासाठी एक मॅन्युअल बटण
+        if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा (Reset for Tomorrow)"):
+            st.session_state.in_position = False
+            st.session_state.trade_type = None
+            st.session_state.selected_option = ""
+            st.session_state.option_token = ""
+            st.session_state.premium_entry = 0.0
+            st.session_state.entry_spot_price = 0.0
+            st.session_state.total_day_pnl = 0.0
+            st.session_state.day_over = False
+            save_state(dict(st.session_state))
+            st.rerun()
+        st.stop()
+
     # --- Waiting Mode ---
     if not st.session_state.in_position:
         st.info(f"⏳ बॉट ब्रेकआऊटची वाट पाहत आहे... | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
@@ -133,7 +147,6 @@ try:
         if spot_price > tc:
             atm_strike = round(spot_price / 50) * 50
             itm_strike = atm_strike - 50  
-            
             token, symbol_name, expiry_date = fetch_latest_angel_token(itm_strike, "CE")
             
             if token and symbol_name:
@@ -153,7 +166,6 @@ try:
         elif spot_price < bc:
             atm_strike = round(spot_price / 50) * 50
             itm_strike = atm_strike + 50  
-            
             token, symbol_name, expiry_date = fetch_latest_angel_token(itm_strike, "PE")
             
             if token and symbol_name:
@@ -184,7 +196,6 @@ try:
                 spot_change = st.session_state.entry_spot_price - spot_price
             live_option_premium = st.session_state.premium_entry + (spot_change * 0.60)
 
-        # 🎯 ५ लॉटनुसार P&L कॅल्क्युलेशन (३२५ क्वांटिटी)
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
         sl_val = st.session_state.premium_entry - 15
         tgt_val = st.session_state.premium_entry + 30
@@ -203,19 +214,22 @@ try:
         st.write(f"⚠️ **Stoploss (SL):** ₹{sl_val:.2f} | 🎯 **Target (TGT):** ₹{tgt_val:.2f}")
         st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # Target / SL Hit Check
+        # 🎯 Target Hit Logic
         if live_option_premium >= tgt_val:
             st.balloons()
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
+            st.session_state.day_over = True  # सिस्टीम लॉक करा
             save_state(dict(st.session_state))
             st.success(f"🎯 TARGET HIT! नफा बुक झाला: ₹{trade_pnl:.2f}")
             time.sleep(2)
             st.rerun()
             
+        # 🛑 Stoploss Hit Logic
         elif live_option_premium <= sl_val:
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
+            st.session_state.day_over = True  # सिस्टीम लॉक करा
             save_state(dict(st.session_state))
             st.error(f"🛑 STOPLOSS HIT! तोटा बुक झाला: ₹{trade_pnl:.2f}")
             time.sleep(2)
