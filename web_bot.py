@@ -290,16 +290,21 @@ if len(st.session_state.ohlc_data) > 60:
     st.session_state.ohlc_data.pop(0)
 
 # ==========================================
-# ५. Entry, SL & Target लाइन्स असलेला ट्रेडिंगव्ह्यू चार्ट
+# ५. Entry, SL, Target आणि Live Running P&L लाइन्स असलेला चार्ट
 # ==========================================
 st.subheader("🕯️ Live TradingView Standalone Chart")
 tv_json_data = json.dumps(st.session_state.ohlc_data)
 
-# लाईन्सच्या किमती पास करणे
+# लाईन्सच्या किमती आणि नफा-तोटा पास करणे
 entry_p = float(st.session_state.premium_entry)
 sl_p = float(st.session_state.current_sl)
 tgt_p = float(st.session_state.current_tgt)
+live_p = float(live_option_premium)
 has_pos = "true" if st.session_state.in_position else "false"
+
+# नफा असल्यास रेषेचा रंग हिरवा, तोटा असल्यास लाल ठरवणे
+pnl_color = '#00E676' if trade_pnl >= 0 else '#FF1744'
+pnl_text = f"LIVE P&L: +₹{trade_pnl:.2f}" if trade_pnl >= 0 else f"LIVE P&L: -₹{abs(trade_pnl):.2f}"
 
 raw_html = f"""<!DOCTYPE html>
 <html>
@@ -334,9 +339,8 @@ raw_html = f"""<!DOCTYPE html>
         const chartData = {tv_json_data};
         candleSeries.setData(chartData);
         
-        // 🎯 **चार्टवर Entry, SL आणि Target च्या रंगीत लाइन्स जोडणे**
         if ({has_pos}) {{
-            // 🔵 ENTRY PRICE LINE
+            // 🔵 BUY ENTRY PRICE LINE
             candleSeries.createPriceLine({{
                 price: {entry_p},
                 color: '#2962FF',
@@ -349,7 +353,7 @@ raw_html = f"""<!DOCTYPE html>
             // 🟢 TARGET LINE
             candleSeries.createPriceLine({{
                 price: {tgt_p},
-                color: '#00E676',
+                color: '#00C853',
                 lineWidth: 2,
                 lineStyle: LightweightCharts.LineStyle.Dashed,
                 axisLabelVisible: true,
@@ -359,11 +363,21 @@ raw_html = f"""<!DOCTYPE html>
             // 🔴 STOP LOSS LINE
             candleSeries.createPriceLine({{
                 price: {sl_p},
-                color: '#FF1744',
+                color: '#D50000',
                 lineWidth: 2,
                 lineStyle: LightweightCharts.LineStyle.Dashed,
                 axisLabelVisible: true,
                 title: 'STOPLOSS: ₹{sl_p}'
+            }});
+
+            // 🔀 📦 **LIVE RUNNING PROFIT/LOSS TRACKING LINE**
+            candleSeries.createPriceLine({{
+                price: {live_p},
+                color: '{pnl_color}',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: '{pnl_text}'
             }});
         }}
 
