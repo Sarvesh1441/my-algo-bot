@@ -8,12 +8,26 @@ import json
 import os
 
 # ==========================================
-# १. पेज, फाईल आणि लॉट साईझ सेटिंग्ज
+# १. पेज, फाईल आणि कॅपिटल सेटिंग्ज (Risk Management)
 # ==========================================
 st.set_page_config(page_title="Algo Trading Dashboard", page_icon="📈", layout="wide")
 
+# 💰 इथे तुमचे एकूण कॅपिटल टाका (उदा. ५०००० किंवा १०००००)
+TOTAL_CAPITAL = 100000  
+
+# 🛡️ रिस्क मॅनेजमेंट: एका ट्रेडमध्ये कॅपिटलच्या फक्त ५% रिस्क घेणे
+RISK_PER_TRADE = TOTAL_CAPITAL * 0.05  
+SL_POINTS = 15
+NIFTY_LOT_SIZE = 65  # १ लॉट = ६५ क्वांटिटी
+
+# 🎯 कॅपिटलनुसार ऑटोमॅटिक लॉट साईझ कॅल्क्युलेशन
+calculated_lots = int(RISK_PER_TRADE / (SL_POINTS * NIFTY_LOT_SIZE))
+if calculated_lots < 1:
+    calculated_lots = 1  # कमीत कमी १ लॉट
+
+LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
+
 STATE_FILE = "trade_state.json"
-LOT_SIZE = 325  # ५ लॉट (६५ * ५)
 
 def save_state(state_data):
     with open(STATE_FILE, "w") as f:
@@ -31,11 +45,11 @@ def load_state():
         "premium_entry": 0.0, 
         "entry_spot_price": 0.0, 
         "total_day_pnl": 0.0,
-        "day_over": False  # दिवसाचा ट्रेड संपला की नाही हे ट्रॅक करण्यासाठी
+        "day_over": False
     }
 
-st.title("📊 My Live Algo Paper Trading Dashboard")
-st.subheader(f"Angel One Live API | १ ट्रेड प्रति दिवस नियम (Qty: {LOT_SIZE})")
+st.title("📊 My Live Capital-Based Algo Dashboard")
+st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | 🎯 ऑटो लॉट साईझ: {calculated_lots} Lots (Qty: {LOT_SIZE})")
 
 # ==========================================
 # २. API लॉगिन
@@ -114,7 +128,7 @@ if 'in_position' not in st.session_state:
     st.session_state.day_over = saved_data.get("day_over", False)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि ITM लॉजिक
+# ४. मुख्य डेटा ट्रॅकिंग
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -122,11 +136,9 @@ try:
     
     st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
-    # 🛑 नियम: जर आजचा ट्रेड संपला असेल तर इथूनच सिस्टीम लॉक करा
     if st.session_state.day_over:
         st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! नवीन एन्ट्री ब्लॉक केली आहे. | आजचा एकूण P&L: ₹{st.session_state.total_day_pnl:.2f}")
-        # डॅशबोर्ड रीसेट करण्यासाठी एक मॅन्युअल बटण
-        if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा (Reset for Tomorrow)"):
+        if st.button("🔄 उद्यासाठी सिस्टीम रीसेट करा (Reset)"):
             st.session_state.in_position = False
             st.session_state.trade_type = None
             st.session_state.selected_option = ""
@@ -197,10 +209,10 @@ try:
             live_option_premium = st.session_state.premium_entry + (spot_change * 0.60)
 
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
-        sl_val = st.session_state.premium_entry - 15
-        tgt_val = st.session_state.premium_entry + 30
+        sl_val = st.session_state.premium_entry - SL_POINTS
+        tgt_val = st.session_state.premium_entry + (SL_POINTS * 2)
 
-        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}** (५ Lots - Qty: {LOT_SIZE})")
+        st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}** ({calculated_lots} Lots - Qty: {LOT_SIZE})")
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
@@ -214,22 +226,20 @@ try:
         st.write(f"⚠️ **Stoploss (SL):** ₹{sl_val:.2f} | 🎯 **Target (TGT):** ₹{tgt_val:.2f}")
         st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # 🎯 Target Hit Logic
         if live_option_premium >= tgt_val:
             st.balloons()
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
-            st.session_state.day_over = True  # सिस्टीम लॉक करा
+            st.session_state.day_over = True
             save_state(dict(st.session_state))
             st.success(f"🎯 TARGET HIT! नफा बुक झाला: ₹{trade_pnl:.2f}")
             time.sleep(2)
             st.rerun()
             
-        # 🛑 Stoploss Hit Logic
         elif live_option_premium <= sl_val:
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
-            st.session_state.day_over = True  # सिस्टीम लॉक करा
+            st.session_state.day_over = True
             save_state(dict(st.session_state))
             st.error(f"🛑 STOPLOSS HIT! तोटा बुक झाला: ₹{trade_pnl:.2f}")
             time.sleep(2)
@@ -238,6 +248,5 @@ try:
 except Exception as e:
     st.error(f"डेटा ट्रॅक करताना अडचण: {e}")
 
-# १ सेकंदाने ऑटो रिफ्रेश
 time.sleep(1)
 st.rerun()
