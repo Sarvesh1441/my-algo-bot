@@ -8,7 +8,6 @@ import json
 import os
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 # ==========================================
 # १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
@@ -99,7 +98,7 @@ col1.metric("📊 Top CPR (TC Level)", f"₹{tc}")
 col2.metric("📊 Bottom CPR (BC Level)", f"₹{bc}")
 st.markdown("---")
 
-# 🔒 Session State Initialization
+# 🔒 Session State Initialization (एरर फिक्ससह)
 saved_data = load_state()
 
 defaults = {
@@ -122,7 +121,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि ट्रेडिंगव्ह्यू चार्ट
+# ४. मुख्य डेटा ट्रॅकिंग आणि परफेक्ट ट्रेडिंगव्ह्यू चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -162,7 +161,7 @@ try:
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
                 st.session_state.ohlc_data = [{
-                    "Time": current_time, "Open": entry_premium, "High": entry_premium, "Low": entry_premium, "Close": entry_premium, "Volume": 1500
+                    "Time": current_time, "Open": entry_premium, "High": entry_premium + 2, "Low": entry_premium - 1, "Close": entry_premium
                 }]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
@@ -179,29 +178,27 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        # 🕯️ कॅन्डल आणि व्हॉल्युम डेटा मेकिंग
-        current_time = datetime.datetime.now().strftime("%H:%M:%S")
-        import random
-        simulated_vol = random.randint(500, 3000) # व्हॉल्युम बार दिसण्यासाठी सिम्युलेशन
+        # 🕯️ रिअल ट्रेडिंगव्ह्यू कॅन्डलस्टिक मेकिंग
+        current_time = datetime.datetime.now().strftime("%H:%M")
         
         if not st.session_state.ohlc_data:
             st.session_state.ohlc_data.append({
-                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium, "Volume": simulated_vol
+                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
             })
         else:
             last_candle = st.session_state.ohlc_data[-1]
             last_candle["High"] = max(last_candle["High"], live_option_premium)
             last_candle["Low"] = min(last_candle["Low"], live_option_premium)
             last_candle["Close"] = live_option_premium
-            last_candle["Volume"] += int(simulated_vol / 5)
             
-            # दर १० सेकंदांनी नवी कॅन्डल
+            # दर १० सेकंदांनी प्रॉपर क्लोज करून नवी कॅन्डल ओळीने जोडणे
             if int(time.time()) % 10 == 0:
                 st.session_state.ohlc_data.append({
-                    "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium, "Volume": simulated_vol
+                    "Time": datetime.datetime.now().strftime("%H:%M:%S"), 
+                    "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
                 })
 
-        if len(st.session_state.ohlc_data) > 30:
+        if len(st.session_state.ohlc_data) > 40:
             st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
@@ -213,8 +210,8 @@ try:
 
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
 
-        # डॅशबोर्डवरील मुख्य आकडे
         st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
+        
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
         c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
@@ -223,47 +220,40 @@ try:
         
         st.markdown("---")
         
-        # 📈 **Angel One / TradingView सारखा ॲडव्हान्स्ड कॅन्डलस्टिक + व्हॉल्युम चार्ट**
+        # 🕯️ **परफेक्ट ट्रेडिंगव्ह्यू लाइट/प्रापर थीम चार्ट**
         df_candles = pd.DataFrame(st.session_state.ohlc_data)
         
-        # २ रो (Row) चा सबप्लॉट तयार करणे (८०% कॅन्डल, २०% व्हॉल्युम)
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                            vertical_spacing=0.03, 
-                            row_width=[0.2, 0.8])
-        
-        # १. कॅन्डलस्टिक जोडणे
-        fig.add_trace(go.Candlestick(
+        fig = go.Figure(data=[go.Candlestick(
             x=df_candles['Time'],
             open=df_candles['Open'],
             high=df_candles['High'],
             low=df_candles['Low'],
             close=df_candles['Close'],
+            # ट्रेडिंगव्ह्यूचे ओरिजिनल सॉलिड सॉलिड कलर्स
             increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
             increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350',
-            name="Premium"
-        ), row=1, col=1)
+            whiskerwidth=0.4
+        )])
         
-        # २. व्हॉल्युम बार्स जोडणे
-        colors = ['#26a69a' if row['Close'] >= row['Open'] else '#ef5350' for index, row in df_candles.iterrows()]
-        fig.add_trace(go.Bar(
-            x=df_candles['Time'],
-            y=df_candles['Volume'],
-            marker_color=colors,
-            name="Volume",
-            opacity=0.5
-        ), row=2, col=1)
-        
-        # ३. लेआऊट सजवणे (Angel One डार्क थीम)
+        # लाईट ग्रिडलाईन्स आणि योग्य रचनेचा लेआऊट (ट्रेडिंगव्ह्यू प्रमाणे)
         fig.update_layout(
             xaxis_rangeslider_visible=False,
-            template="plotly_dark",
-            height=500,
-            margin=dict(l=10, r=10, t=10, b=10),
-            paper_bgcolor='#131722', # ट्रेडिंगव्ह्यू बॅकग्राउंड कलर
-            plot_bgcolor='#131722',
-            yaxis=dict(gridcolor='#2a2e39', side="right"), # प्राईस स्केल उजवीकडे (Angel One सारखी)
-            xaxis=dict(gridcolor='#2a2e39'),
-            yaxis2=dict(gridcolor='#2a2e39', showticklabels=False)
+            height=450,
+            margin=dict(l=20, r=40, t=10, b=20),
+            paper_bgcolor='#ffffff',  # क्लीन व्हाईट बॅकग्राउंड
+            plot_bgcolor='#ffffff',
+            # फिकट राखाडी रंगाच्या ग्रीडलाईन्स (तंतोतंत धन/ट्रेडिंगव्ह्यू सारख्या)
+            xaxis=dict(
+                gridcolor='#f0f3fa', 
+                tickfont=dict(color='#787b86', size=11),
+                type='category'  # यामुळे कॅन्डल्समध्ये मोठी गॅप न पडता ओळीने व्यवस्थित दिसतील!
+            ),
+            yaxis=dict(
+                gridcolor='#f0f3fa', 
+                side="right",    # प्राईस स्केल उजवीकडे
+                tickfont=dict(color='#787b86', size=11),
+                autorange=True
+            )
         )
         
         st.plotly_chart(fig, use_container_width=True)
