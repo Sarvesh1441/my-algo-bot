@@ -8,6 +8,7 @@ import json
 import os
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ==========================================
 # १. पेज, फाईल आणि कॅपिटल सेटिंग्ज
@@ -38,8 +39,8 @@ def load_state():
             pass
     return {}
 
-st.title("📊 My Live Algo Candlestick Dashboard")
-st.subheader(f"💰 कॅपिटल: ₹{TOTAL_CAPITAL:,} | {calculated_lots} Lots | 🕯️ लाईव्ह कॅन्डलस्टिक चार्ट सिस्टीम")
+st.title("📊 My Live Algo Trading Dashboard")
+st.subheader(f"💰 Capital: ₹{TOTAL_CAPITAL:,} | Lots: {calculated_lots} (Qty: {LOT_SIZE})")
 
 # ==========================================
 # २. API लॉगिन
@@ -113,7 +114,6 @@ defaults = {
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
-    # 🕯️ कॅन्डलसाठी डेटाबेस (Open, High, Low, Close, Time)
     "ohlc_data": [] 
 }
 
@@ -122,7 +122,7 @@ for key, default_val in defaults.items():
         st.session_state[key] = saved_data.get(key, default_val)
 
 # ==========================================
-# ४. मुख्य डेटा ट्रॅकिंग आणि कॅन्डलस्टिक लॉजिक
+# ४. मुख्य डेटा ट्रॅकिंग आणि ट्रेडिंगव्ह्यू चार्ट
 # ==========================================
 try:
     spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
@@ -161,9 +161,8 @@ try:
                 st.session_state.current_sl = entry_premium - SL_POINTS
                 st.session_state.current_tgt = entry_premium + 30
                 st.session_state.sl_trailed_to_cost = False
-                # पहिली कॅन्डल सुरु करणे
                 st.session_state.ohlc_data = [{
-                    "Time": current_time, "Open": entry_premium, "High": entry_premium, "Low": entry_premium, "Close": entry_premium
+                    "Time": current_time, "Open": entry_premium, "High": entry_premium, "Low": entry_premium, "Close": entry_premium, "Volume": 1500
                 }]
                 st.session_state.in_position = True
                 save_state(dict(st.session_state))
@@ -180,28 +179,29 @@ try:
         if live_option_premium == 0.0:
             live_option_premium = st.session_state.premium_entry
 
-        # 🕯️ रिअल-टाइम कॅन्डलस्टिक मेकिंग लॉजिक
+        # 🕯️ कॅन्डल आणि व्हॉल्युम डेटा मेकिंग
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        import random
+        simulated_vol = random.randint(500, 3000) # व्हॉल्युम बार दिसण्यासाठी सिम्युलेशन
         
         if not st.session_state.ohlc_data:
             st.session_state.ohlc_data.append({
-                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium, "Volume": simulated_vol
             })
         else:
             last_candle = st.session_state.ohlc_data[-1]
-            # जर चालू कॅन्डलमध्ये बदल करायचा असेल तर (Live Update)
             last_candle["High"] = max(last_candle["High"], live_option_premium)
             last_candle["Low"] = min(last_candle["Low"], live_option_premium)
             last_candle["Close"] = live_option_premium
+            last_candle["Volume"] += int(simulated_vol / 5)
             
-            # प्रत्येक १० रिफ्रेशनंतर नवीन कॅन्डल तयार करणे (Time Frame Simulation)
-            if len(st.session_state.ohlc_data) > 0 and int(time.time()) % 10 == 0:
+            # दर १० सेकंदांनी नवी कॅन्डल
+            if int(time.time()) % 10 == 0:
                 st.session_state.ohlc_data.append({
-                    "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium
+                    "Time": current_time, "Open": live_option_premium, "High": live_option_premium, "Low": live_option_premium, "Close": live_option_premium, "Volume": simulated_vol
                 })
 
-        # कॅन्डल डेटाची मर्यादा २५ वर सेट करणे
-        if len(st.session_state.ohlc_data) > 25:
+        if len(st.session_state.ohlc_data) > 30:
             st.session_state.ohlc_data.pop(0)
 
         if not st.session_state.sl_trailed_to_cost:
@@ -213,39 +213,59 @@ try:
 
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
 
+        # डॅशबोर्डवरील मुख्य आकडे
         st.write(f"### 🎯 Active ITM Position: **{st.session_state.selected_option}**")
-        
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
         c2.metric("Live Option Premium", f"₹{live_option_premium:.2f}")
-        
-        sl_status = " (सुरक्षित 🔒)" if st.session_state.sl_trailed_to_cost else " (मूळ SL ⚠️)"
-        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_status)
-        
-        tgt_status = " (१:३ वाढवलेलं 🚀)" if st.session_state.sl_trailed_to_cost else " (प्राथमिक ⏳)"
-        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_status)
+        c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta="Cost-to-Cost 🔒" if st.session_state.sl_trailed_to_cost else "मूळ SL ⚠️")
+        c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta="१:३ टार्गेट 🚀" if st.session_state.sl_trailed_to_cost else "प्राथमिक ⏳")
         
         st.markdown("---")
         
-        # 🕯️ **Plotly द्वारे कॅन्डलस्टिक चार्ट डिस्प्ले**
-        st.subheader("🕯️ Live Premium Candlestick Chart")
+        # 📈 **Angel One / TradingView सारखा ॲडव्हान्स्ड कॅन्डलस्टिक + व्हॉल्युम चार्ट**
         df_candles = pd.DataFrame(st.session_state.ohlc_data)
         
-        fig = go.Figure(data=[go.Candlestick(
+        # २ रो (Row) चा सबप्लॉट तयार करणे (८०% कॅन्डल, २०% व्हॉल्युम)
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                            vertical_spacing=0.03, 
+                            row_width=[0.2, 0.8])
+        
+        # १. कॅन्डलस्टिक जोडणे
+        fig.add_trace(go.Candlestick(
             x=df_candles['Time'],
             open=df_candles['Open'],
             high=df_candles['High'],
             low=df_candles['Low'],
             close=df_candles['Close'],
-            increasing_line_color='green', decreasing_line_color='red'
-        )])
+            increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
+            increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350',
+            name="Premium"
+        ), row=1, col=1)
         
+        # २. व्हॉल्युम बार्स जोडणे
+        colors = ['#26a69a' if row['Close'] >= row['Open'] else '#ef5350' for index, row in df_candles.iterrows()]
+        fig.add_trace(go.Bar(
+            x=df_candles['Time'],
+            y=df_candles['Volume'],
+            marker_color=colors,
+            name="Volume",
+            opacity=0.5
+        ), row=2, col=1)
+        
+        # ३. लेआऊट सजवणे (Angel One डार्क थीम)
         fig.update_layout(
             xaxis_rangeslider_visible=False,
-            margin=dict(l=20, r=20, t=20, b=20),
-            height=400,
-            template="plotly_dark"
+            template="plotly_dark",
+            height=500,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor='#131722', # ट्रेडिंगव्ह्यू बॅकग्राउंड कलर
+            plot_bgcolor='#131722',
+            yaxis=dict(gridcolor='#2a2e39', side="right"), # प्राईस स्केल उजवीकडे (Angel One सारखी)
+            xaxis=dict(gridcolor='#2a2e39'),
+            yaxis2=dict(gridcolor='#2a2e39', showticklabels=False)
         )
+        
         st.plotly_chart(fig, use_container_width=True)
 
         if trade_pnl >= 0:
@@ -255,28 +275,19 @@ try:
             
         st.caption(f"💼 आजचा एकूण बंद झालेला P&L: ₹{st.session_state.total_day_pnl:.2f}")
         
-        # Target Check
+        # Exit Checks
         if live_option_premium >= st.session_state.current_tgt:
             st.balloons()
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
             st.session_state.day_over = True
             save_state(dict(st.session_state))
-            st.success(f"🎯 BIG TARGET HIT (1:3)! नफा बुक: ₹{trade_pnl:.2f}")
-            time.sleep(2)
             st.rerun()
-            
-        # SL Check
         elif live_option_premium <= st.session_state.current_sl:
             st.session_state.total_day_pnl += trade_pnl
             st.session_state.in_position = False
             st.session_state.day_over = True
             save_state(dict(st.session_state))
-            if st.session_state.sl_trailed_to_cost:
-                st.info(f"🛑 Cost-to-Cost SL Hit! तोटा टळला, ट्रेड सुरक्षित बंद: ₹{trade_pnl:.2f}")
-            else:
-                st.error(f"🛑 STOPLOSS HIT! मूळ तोटा बुक झाला: ₹{trade_pnl:.2f}")
-            time.sleep(2)
             st.rerun()
 
 except Exception as e:
