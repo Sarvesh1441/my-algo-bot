@@ -10,7 +10,7 @@ import random
 import streamlit.components.v1 as components
 
 # ==========================================
-# १. पेज आणि कॅपिटल सेटिंग्ज
+# १. पेज आणि डायनॅमिक कॅपिटल सेटिंग्ज
 # ==========================================
 st.set_page_config(
     page_title="Intraday & BTST Algo Dashboard", 
@@ -19,15 +19,7 @@ st.set_page_config(
 )
 
 STATE_FILE = "trade_state.json"
-TOTAL_CAPITAL = 100000  
-RISK_PER_TRADE = TOTAL_CAPITAL * 0.05  
-SL_POINTS = 15  
-NIFTY_LOT_SIZE = 65  
-
-calculated_lots = int(RISK_PER_TRADE / (SL_POINTS * NIFTY_LOT_SIZE))
-if calculated_lots < 1:
-    calculated_lots = 1
-LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
+INITIAL_CAPITAL = 100000  # मूळ सुरूवातीचे भांडवल
 
 def save_state(state_data):
     try:
@@ -45,9 +37,43 @@ def load_state():
             pass
     return {}
 
+# 🔒 सुरक्षित स्टेट इनिशियलायझेशन
+saved_data = load_state()
+
+defaults = {
+    "in_position": False,
+    "trade_type": None,
+    "selected_option": "",
+    "option_token": "",
+    "premium_entry": 0.0,
+    "entry_spot_price": 0.0,
+    "total_day_pnl": 0.0,
+    "current_capital": saved_data.get("current_capital", INITIAL_CAPITAL),
+    "day_over": False,
+    "current_sl": 0.0,
+    "current_tgt": 0.0,
+    "sl_trailed_to_cost": False,
+    "ohlc_data": []
+}
+
+for key, default_val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = saved_data.get(key, default_val)
+
+# 💰 डायनॅमिक कॅपिटल आणि रिस्क मॅनेजमेंट (नफा-तोट्यानुसार बदलणारे)
+CURRENT_CAPITAL = st.session_state.current_capital
+RISK_PER_TRADE = CURRENT_CAPITAL * 0.05  
+SL_POINTS = 15  
+NIFTY_LOT_SIZE = 65  
+
+calculated_lots = int(RISK_PER_TRADE / (SL_POINTS * NIFTY_LOT_SIZE))
+if calculated_lots < 1:
+    calculated_lots = 1
+LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
+
 st.title("📊 Intraday & BTST Live Algo Dashboard")
 st.subheader(
-    f"💰 Capital: ₹{TOTAL_CAPITAL:,} | "
+    f"💰 Current Capital: ₹{CURRENT_CAPITAL:,.2f} | "
     f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
 )
 
@@ -136,30 +162,8 @@ c2.metric("📊 Pivot Level (Center)", f"₹{pivot:.2f}")
 c3.metric("📊 BC Level (Bottom)", f"₹{bottom_cpr:.2f}")
 st.markdown("---")
 
-# 🔒 सुरक्षित स्टेट इनिशियलायझेशन
-saved_data = load_state()
-
-defaults = {
-    "in_position": False,
-    "trade_type": None,
-    "selected_option": "",
-    "option_token": "",
-    "premium_entry": 0.0,
-    "entry_spot_price": 0.0,
-    "total_day_pnl": 0.0,
-    "day_over": False,
-    "current_sl": 0.0,
-    "current_tgt": 0.0,
-    "sl_trailed_to_cost": False,
-    "ohlc_data": []
-}
-
-for key, default_val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = saved_data.get(key, default_val)
-
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि BTST लॉजिक
+# ४. मुख्य ट्रॅकिंग आणि कॅपिटल अपडेट लॉजिक
 # ==========================================
 spot_price = 24630.00
 try:
@@ -171,15 +175,14 @@ except Exception:
 
 st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
-# वर्तमाान वेळ (IST) काढणे
 now_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).time()
-market_close_limit = datetime.time(15, 15) # दुपारी ३:१५
+market_close_limit = datetime.time(15, 15)
 
 if st.session_state.day_over:
-    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:.2f}")
-    if st.button("🔄 उद्यासाठी रीसेट करा"):
-        for k, v in defaults.items():
-            st.session_state[k] = v
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा P&L: ₹{st.session_state.total_day_pnl:,.2f} | नवीन एकूण कॅपिटल: ₹{st.session_state.current_capital:,.2f}")
+    if st.button("🔄 नवीन दिवसासाठी रीसेट करा"):
+        st.session_state.day_over = False
+        st.session_state.total_day_pnl = 0.0
         save_state(dict(st.session_state))
         st.rerun()
     st.stop()
@@ -205,7 +208,6 @@ if not is_active_trade:
             })
             p = c
             
-    # CPR Breakout Check
     if spot_price > top_cpr or spot_price < bottom_cpr:
         trade_type = "CE" if spot_price > top_cpr else "PE"
         atm_strike = round(spot_price / 50) * 50
@@ -223,7 +225,7 @@ if not is_active_trade:
             st.session_state.option_token = token
             st.session_state.premium_entry = entry_premium
             st.session_state.current_sl = entry_premium - SL_POINTS
-            st.session_state.current_tgt = entry_premium + (45 if is_btst else 30) # BTST साठी मोठे टार्गेट
+            st.session_state.current_tgt = entry_premium + (45 if is_btst else 30)
             st.session_state.sl_trailed_to_cost = False
             
             st.session_state.ohlc_data = []
@@ -253,17 +255,18 @@ else:
         except Exception:
             pass
 
-    # Intraday Auto Square-Off Check (जर Intraday मोड असेल आणि वेळ ३:१५ झाली असेल)
+    # Intraday Auto Square-Off Check
     if not is_btst and now_time >= market_close_limit:
         st.warning("⏰ Intraday Square-off Time (3:15 PM) reached! Closing position...")
         trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
         st.session_state.total_day_pnl += trade_pnl
+        st.session_state.current_capital += trade_pnl  # 💰 कॅपिटलमध्ये P&L जोडणे
         st.session_state.in_position = False
         st.session_state.day_over = True
         save_state(dict(st.session_state))
         st.rerun()
 
-    # Trailing SL Logic (+20 Points)
+    # Trailing SL Logic
     if not st.session_state.sl_trailed_to_cost:
         if (live_option_premium - st.session_state.premium_entry) >= 20:
             st.session_state.current_sl = st.session_state.premium_entry
@@ -294,16 +297,17 @@ else:
     
     st.markdown("---")
 
-    # Target or SL Exit Check
+    # Target/SL Auto Exit (कॅपिटल अपडेट होणारी महत्त्वाची लाईन)
     if live_option_premium >= st.session_state.current_tgt or live_option_premium <= st.session_state.current_sl:
         st.session_state.total_day_pnl += trade_pnl
+        st.session_state.current_capital += trade_pnl  # 💰 मुख्य कॅपिटलमध्ये प्रॉफिट/लॉस ऍड करणे
         st.session_state.in_position = False
         st.session_state.day_over = True
         save_state(dict(st.session_state))
         st.rerun()
 
 # ==========================================
-# ५. ट्रेडिंगव्ह्यू चार्ट इंजिन
+# ५. स्थिर ट्रेडिंगव्ह्यू चार्ट इंजिन
 # ==========================================
 st.subheader("🕯️ Live TradingView Standalone Chart")
 
