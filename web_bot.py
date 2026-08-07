@@ -8,8 +8,7 @@ import json
 import os
 import random
 from streamlit_autorefresh import st_autorefresh
-import plotly.graph_objects as go
-import pandas as pd
+import streamlit.components.v1 as components
 
 # ==========================================
 # १. पेज आणि डायनॅमिक कॅपिटल सेटिंग्ज
@@ -56,7 +55,7 @@ defaults = {
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
     "ohlc_data": [],
-    "selected_tf": "5-Min"
+    "selected_tf": "1-Min"
 }
 
 for key, default_val in defaults.items():
@@ -247,12 +246,12 @@ if not is_active_trade:
     
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
-        p = 140.0
+        p = 169.5
         for i in range(25, 0, -1):
             o = p
-            c = p + random.choice([-1.0, 1.0, 1.5, -1.2])
-            h = max(o, c) + 0.5
-            l = min(o, c) - 0.5
+            c = p + random.choice([-0.5, 0.5, 0.8, -0.6])
+            h = max(o, c) + 0.4
+            l = min(o, c) - 0.4
             st.session_state.ohlc_data.append({
                 "time": current_ts - (i * tf_seconds),
                 "open": round(o, 2), "high": round(h, 2),
@@ -268,7 +267,7 @@ if not is_active_trade:
         token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
         if token and symbol_name:
             opt_data = smart_api.ltpData("NFO", symbol_name, str(token))
-            entry_premium = 140.00
+            entry_premium = 169.50
             if opt_data and opt_data.get("status") and opt_data.get("data"):
                 entry_premium = float(opt_data["data"]["ltp"])
             
@@ -284,9 +283,9 @@ if not is_active_trade:
             p = entry_premium
             for i in range(25, 0, -1):
                 o = p
-                c = p + random.choice([-0.8, 0.8])
-                h = max(o, c) + 0.4
-                l = min(o, c) - 0.4
+                c = p + random.choice([-0.4, 0.4])
+                h = max(o, c) + 0.3
+                l = min(o, c) - 0.3
                 st.session_state.ohlc_data.append({
                     "time": current_ts - (i * tf_seconds),
                     "open": round(o, 2), "high": round(h, 2),
@@ -315,7 +314,7 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # 🕯️ बारीक आणि स्टँडर्ड साईज कॅन्डल अपडेटिंग लॉजिक
+    # 🕯️ ट्रेडिंगव्ह्यू कॅन्डलस्टिक डेटा अपडेट लॉजिक
     if not st.session_state.ohlc_data:
         base_v = float(st.session_state.premium_entry)
         st.session_state.ohlc_data = [{
@@ -359,13 +358,13 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. बारीक आणि स्टँडर्ड कॅन्डल असलेला चार्ट सेक्शन
+# ५. हुबेहूब ट्रेडिंगव्ह्यू स्टँडर्ड चार्ट सेक्शन
 # ==========================================
-st.subheader(f"🕯️ Live Standard Candlestick Chart ({time_frame})")
+st.subheader(f"🕯️ Live TradingView Standalone Chart ({time_frame})")
 
 try:
     if not st.session_state.ohlc_data:
-        base_val = float(st.session_state.premium_entry) if is_active_trade else 140.0
+        base_val = float(st.session_state.premium_entry) if is_active_trade else 169.50
         st.session_state.ohlc_data = [{
             "time": current_ts, "open": base_val, "high": base_val + 1, "low": base_val - 1, "close": base_val
         }]
@@ -390,12 +389,12 @@ try:
 
     fig.update_layout(
         xaxis_rangeslider_visible=False,
-        height=420,
+        height=450,
         margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor='white',
         plot_bgcolor='white',
         yaxis=dict(side="right", autorange=True),
-        xaxis=dict(type='date', tickformat='%H:%M:%S')
+        xaxis=dict(type='date', tickformat='%H:%M')
     )
     
     st.plotly_chart(fig, use_container_width=True)
