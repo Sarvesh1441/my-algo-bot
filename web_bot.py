@@ -248,16 +248,11 @@ if not is_active_trade:
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
         p = 140.0
-        for i in range(35, 0, -1):
-            o = p
-            c = p + random.choice([-1.5, -0.5, 1.0, 2.0])
-            h = max(o, c) + 0.8
-            l = min(o, c) - 0.8
+        for i in range(20, 0, -1):
+            p += random.choice([-0.8, 0.8, 1.2, -1.0])
             st.session_state.ohlc_data.append({
-                "time": current_ts - (i * tf_seconds), "open": round(o, 2),
-                "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+                "time": current_ts - (i * 15), "close": round(p, 2)
             })
-            p = c
             
     if spot_price > top_cpr or spot_price < bottom_cpr:
         trade_type = "CE" if spot_price > top_cpr else "PE"
@@ -280,17 +275,12 @@ if not is_active_trade:
             st.session_state.sl_trailed_to_cost = False
             
             st.session_state.ohlc_data = []
-            p = entry_premium - 4.0
-            for i in range(35, 0, -1):
-                o = p
-                c = p + random.choice([-1.0, 0.5, 1.2])
-                h = max(o, c) + 0.5
-                l = min(o, c) - 0.5
+            p = entry_premium
+            for i in range(20, 0, -1):
+                p += random.choice([-0.5, 0.5])
                 st.session_state.ohlc_data.append({
-                    "time": current_ts - (i * tf_seconds), "open": round(o, 2),
-                    "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
+                    "time": current_ts - (i * 15), "close": round(p, 2)
                 })
-                p = c
             st.session_state.in_position = True
             save_state(dict(st.session_state))
             st.rerun()
@@ -313,17 +303,16 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
+    # 📈 प्रत्येक सेकंदाला नवीन प्राईस पॉईंट ॲड करणे जेणेकरून लाईन सरकेल
     if not st.session_state.ohlc_data:
-        base_v = float(st.session_state.premium_entry)
-        st.session_state.ohlc_data = [{
-            "time": current_ts, "open": base_v,
-            "high": base_v + 1.0, "low": base_v - 1.0, "close": base_v
-        }]
+        st.session_state.ohlc_data = [{"time": current_ts, "close": float(live_option_premium)]
     else:
-        last_c = st.session_state.ohlc_data[-1]
-        last_c["close"] = float(live_option_premium)
-        last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium))
-        last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium))
+        # दरवेळी नवीन टाईमस्टॅम्पसह लाईव्ह प्राईस पुश करणे
+        last_entry = st.session_state.ohlc_data[-1]
+        if current_ts - last_entry["time"] >= 2:  # दर २ सेकंदाने नवीन पॉईंट
+            st.session_state.ohlc_data.append({"time": current_ts, "close": float(live_option_premium)})
+        else:
+            st.session_state.ohlc_data[-1]["close"] = float(live_option_premium)
 
     mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
     st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
@@ -349,16 +338,14 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. योग्य झूम लेव्हल असलेला प्लॉटली चार्ट सेक्शन
+# ५. खऱ्या लाईव्ह मुव्हमेंट असलेला प्लॉटली चार्ट
 # ==========================================
-st.subheader(f"📈 Live Price Movement Chart ({time_frame})")
+st.subheader(f"📈 Live Moving Price Chart ({time_frame})")
 
 try:
     if not st.session_state.ohlc_data:
         base_val = float(st.session_state.premium_entry) if is_active_trade else 140.0
-        st.session_state.ohlc_data = [{
-            "time": current_ts, "open": base_val, "high": base_val + 2, "low": base_val - 2, "close": base_val
-        }]
+        st.session_state.ohlc_data = [{"time": current_ts, "close": base_val}]
     
     df_chart = pd.DataFrame(st.session_state.ohlc_data)
     df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
@@ -366,11 +353,11 @@ try:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df_chart["Time"], y=df_chart["close"],
-        mode='lines+markers', name='Premium',
-        line=dict(color='#26a69a', width=2)
+        mode='lines+markers', name='Live Premium',
+        line=dict(color='#26a69a', width=3)
     ))
 
-    # ट्रेड चालू असल्यास चार्टवर एंट्री, टार्गेट आणि एसएल रेषा दाखवणे
+    # ट्रेड चालू असल्यास चार्टवर एंट्री, टार्गेट आणि एसएल रेषा
     if is_active_trade:
         fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
@@ -381,8 +368,8 @@ try:
         margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor='white',
         plot_bgcolor='white',
-        yaxis=dict(side="right", autorange=True), # <--- ऑटोमॅटिक प्राईस झूम
-        xaxis=dict(type='date', tickformat='%H:%M')
+        yaxis=dict(side="right", autorange=True),
+        xaxis=dict(type='date', tickformat='%H:%M:%S')
     )
     
     st.plotly_chart(fig, use_container_width=True)
