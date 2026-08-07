@@ -347,21 +347,23 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. तात्काळ चार्ट दाखवणारा इन्स्टंट सेक्शन
+# ५. योग्य प्राईस स्केल असलेला लाईव्ह चार्ट सेक्शन
 # ==========================================
 st.subheader(f"📈 Live Price Movement Chart ({time_frame})")
 
 try:
     if not st.session_state.ohlc_data:
+        base_val = float(st.session_state.premium_entry) if is_active_trade else 140.0
         st.session_state.ohlc_data = [{
-            "time": current_ts, "open": 140.0, "high": 145.0, "low": 138.0, "close": 142.0
+            "time": current_ts, "open": base_val, "high": base_val + 2, "low": base_val - 2, "close": base_val
         }]
     
     df_chart = pd.DataFrame(st.session_state.ohlc_data)
     df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
     df_chart.set_index("Time", inplace=True)
     
-    st.line_chart(df_chart["close"], height=380, color="#26a69a")
+    # चार्टवर फक्त क्लोज प्राईस अचूक स्केलमध्ये दिसेल
+    st.line_chart(df_chart[["close"]], height=380, color="#26a69a")
     
     if is_active_trade:
         st.info(f"🔵 **Trade Levels** ➔ Entry: ₹{st.session_state.premium_entry} | Target: ₹{st.session_state.current_tgt} | StopLoss: ₹{st.session_state.current_sl}")
