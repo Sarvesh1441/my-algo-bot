@@ -250,9 +250,9 @@ if not is_active_trade:
         p = 140.0
         for i in range(25, 0, -1):
             o = p
-            c = p + random.choice([-1.5, 1.5, 2.0, -1.8])
-            h = max(o, c) + 1.2
-            l = min(o, c) - 1.2
+            c = p + random.choice([-1.0, 1.0, 1.5, -1.2])
+            h = max(o, c) + 0.5
+            l = min(o, c) - 0.5
             st.session_state.ohlc_data.append({
                 "time": current_ts - (i * tf_seconds),
                 "open": round(o, 2), "high": round(h, 2),
@@ -284,9 +284,9 @@ if not is_active_trade:
             p = entry_premium
             for i in range(25, 0, -1):
                 o = p
-                c = p + random.choice([-1.2, 1.2])
-                h = max(o, c) + 1.0
-                l = min(o, c) - 1.0
+                c = p + random.choice([-0.8, 0.8])
+                h = max(o, c) + 0.4
+                l = min(o, c) - 0.4
                 st.session_state.ohlc_data.append({
                     "time": current_ts - (i * tf_seconds),
                     "open": round(o, 2), "high": round(h, 2),
@@ -315,25 +315,25 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # 🕯️ मोठ्या आणि ठळक कॅन्डलस्टिक साईज अपडेटिंग लॉजिक
+    # 🕯️ बारीक आणि स्टँडर्ड साईज कॅन्डल अपडेटिंग लॉजिक
     if not st.session_state.ohlc_data:
         base_v = float(st.session_state.premium_entry)
         st.session_state.ohlc_data = [{
             "time": current_ts, "open": base_v,
-            "high": base_v + 1.5, "low": base_v - 1.5, "close": base_v
+            "high": base_v + 0.5, "low": base_v - 0.5, "close": base_v
         }]
     else:
         last_c = st.session_state.ohlc_data[-1]
         if current_ts - last_c["time"] >= tf_seconds:
             st.session_state.ohlc_data.append({
                 "time": current_ts, "open": float(live_option_premium),
-                "high": float(live_option_premium) + 0.8, "low": float(live_option_premium) - 0.8,
+                "high": float(live_option_premium) + 0.3, "low": float(live_option_premium) - 0.3,
                 "close": float(live_option_premium)
             })
         else:
             last_c["close"] = float(live_option_premium)
-            last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium + 0.5))
-            last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium - 0.5))
+            last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium + 0.2))
+            last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium - 0.2))
 
     mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
     st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
@@ -359,15 +359,15 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. मोठ्या आणि ठळक कॅन्डल असलेला चार्ट सेक्शन
+# ५. बारीक आणि स्टँडर्ड कॅन्डल असलेला चार्ट सेक्शन
 # ==========================================
-st.subheader(f"🕯️ Live Prominent Candlestick Chart ({time_frame})")
+st.subheader(f"🕯️ Live Standard Candlestick Chart ({time_frame})")
 
 try:
     if not st.session_state.ohlc_data:
         base_val = float(st.session_state.premium_entry) if is_active_trade else 140.0
         st.session_state.ohlc_data = [{
-            "time": current_ts, "open": base_val, "high": base_val + 2, "low": base_val - 2, "close": base_val
+            "time": current_ts, "open": base_val, "high": base_val + 1, "low": base_val - 1, "close": base_val
         }]
     
     df_chart = pd.DataFrame(st.session_state.ohlc_data)
