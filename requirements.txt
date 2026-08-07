@@ -5,3 +5,4 @@ pyotp
 requests
 plotly
 logzero
+websocket-client
