@@ -74,7 +74,7 @@ if calculated_lots < 1:
     calculated_lots = 1
 LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
 
-# 🕒 **लाईव्ह रिअल-टाइम घड्याळ (IST Time)**
+# 🕒 लाईव्ह रिअल-टाइम घड्याळ (IST Time)
 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
 current_time_str = ist_now.strftime("%H:%M:%S")
 current_date_str = ist_now.strftime("%d-%b-%Y")
@@ -328,7 +328,7 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. प्राईस उजव्या बाजूला असलेला स्थिर Plotly चार्ट
+# ५. अचूक वेळेचा (Time Format) असलेला स्थिर Plotly चार्ट
 # ==========================================
 st.subheader("🕯️ Live Stable Trading Chart")
 
@@ -349,12 +349,18 @@ if st.session_state.ohlc_data:
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
         fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
 
+    # 🎯 **वेळ आणि प्राईस अचूक सेट केलेले लेआउट**
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         height=420,
         margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor='white',
         plot_bgcolor='white',
-        yaxis=dict(side="right")
+        yaxis=dict(side="right"),
+        xaxis=dict(
+            type='date',
+            tickformat='%H:%M',  # <--- वेळेचे तास आणि मिनिटे स्पष्ट दिसण्यासाठी
+            dtick="M30"
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
