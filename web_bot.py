@@ -303,13 +303,12 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # 📈 प्रत्येक सेकंदाला नवीन प्राईस पॉईंट ॲड करणे जेणेकरून लाईन सरकेल
+    # 📈 सुधारित लाईव्ह प्राईस पुशिंग (Syntax Corrected)
     if not st.session_state.ohlc_data:
-        st.session_state.ohlc_data = [{"time": current_ts, "close": float(live_option_premium)]
+        st.session_state.ohlc_data = [{"time": current_ts, "close": float(live_option_premium)}]
     else:
-        # दरवेळी नवीन टाईमस्टॅम्पसह लाईव्ह प्राईस पुश करणे
         last_entry = st.session_state.ohlc_data[-1]
-        if current_ts - last_entry["time"] >= 2:  # दर २ सेकंदाने नवीन पॉईंट
+        if current_ts - last_entry["time"] >= 2:
             st.session_state.ohlc_data.append({"time": current_ts, "close": float(live_option_premium)})
         else:
             st.session_state.ohlc_data[-1]["close"] = float(live_option_premium)
@@ -357,7 +356,6 @@ try:
         line=dict(color='#26a69a', width=3)
     ))
 
-    # ट्रेड चालू असल्यास चार्टवर एंट्री, टार्गेट आणि एसएल रेषा
     if is_active_trade:
         fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
