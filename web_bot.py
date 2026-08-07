@@ -54,7 +54,8 @@ defaults = {
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
-    "ohlc_data": []
+    "ohlc_data": [],
+    "selected_tf": "5-Min"
 }
 
 for key, default_val in defaults.items():
@@ -143,13 +144,34 @@ def fetch_latest_angel_token(strike_price, option_type):
         pass
     return None, None, None
 
-# ⚙️ ट्रेडिंग मोड निवड
-trade_mode = st.radio(
-    "🔄 Select Trading Mode:", 
-    ["Intraday (Square-off at 3:15 PM)", "BTST (Hold Overnight to Next Day)"], 
-    horizontal=True
-)
+# ⏱️ **टाईम फ्रेम सिलेक्टर (1-Min, 5-Min, 15-Min)**
+col_tf1, col_tf2 = st.columns(2)
+with col_tf1:
+    trade_mode = st.radio(
+        "🔄 Select Trading Mode:", 
+        ["Intraday (Square-off at 3:15 PM)", "BTST (Hold Overnight to Next Day)"], 
+        horizontal=True
+    )
+with col_tf2:
+    time_frame = st.radio(
+        "⏱️ Select Time Frame:", 
+        ["1-Min", "5-Min", "15-Min"], 
+        key="tf_radio",
+        horizontal=True
+    )
+
 is_btst = "BTST" in trade_mode
+
+if time_frame != st.session_state.selected_tf:
+    st.session_state.selected_tf = time_frame
+    st.session_state.ohlc_data = []
+
+if time_frame == "1-Min":
+    tf_seconds = 60
+elif time_frame == "15-Min":
+    tf_seconds = 900
+else:
+    tf_seconds = 300  # 5-Min
 
 # CPR Levels Setup
 high_prev = 24650.00
@@ -193,7 +215,6 @@ if st.session_state.day_over:
         st.rerun()
     st.stop()
 
-# 🕒 अचूक रिअल-टाइम युनिक्स स्टॅम्प (IST नुसार)
 current_ts = int(ist_now.timestamp())
 is_active_trade = st.session_state.in_position
 
@@ -222,7 +243,7 @@ if is_active_trade:
 
 # --- Waiting Mode ---
 if not is_active_trade:
-    st.info(f"⏳ {trade_mode} सिस्टीम CE किंवा PE ब्रेकआऊटच्या प्रतीक्षेत आहे...")
+    st.info(f"⏳ {trade_mode} सिस्टीम [{time_frame}] ब्रेकआऊटच्या प्रतीक्षेत आहे...")
     
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
@@ -233,7 +254,7 @@ if not is_active_trade:
             h = max(o, c) + 0.8
             l = min(o, c) - 0.8
             st.session_state.ohlc_data.append({
-                "time": current_ts - (i * 300), "open": round(o, 2),
+                "time": current_ts - (i * tf_seconds), "open": round(o, 2),
                 "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
             })
             p = c
@@ -266,7 +287,7 @@ if not is_active_trade:
                 h = max(o, c) + 0.5
                 l = min(o, c) - 0.5
                 st.session_state.ohlc_data.append({
-                    "time": current_ts - (i * 300), "open": round(o, 2),
+                    "time": current_ts - (i * tf_seconds), "open": round(o, 2),
                     "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
                 })
                 p = c
@@ -329,12 +350,11 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. अचूक वेळेसह (IST Time Axis) असलेला स्थिर Plotly चार्ट
+# ५. टाईम फ्रेम सपोर्ट असलेला स्थिर Plotly चार्ट
 # ==========================================
-st.subheader("🕯️ Live Stable Trading Chart")
+st.subheader(f"🕯️ Live Stable Trading Chart ({time_frame})")
 
 if st.session_state.ohlc_data:
-    # 🕒 युनिक्स स्टॅम्प थेट योग्य आयएसटी वेळेत रूपांतरित करणे
     times = [datetime.datetime.fromtimestamp(d["time"]) for d in st.session_state.ohlc_data]
     opens = [d["open"] for d in st.session_state.ohlc_data]
     highs = [d["high"] for d in st.session_state.ohlc_data]
@@ -351,7 +371,6 @@ if st.session_state.ohlc_data:
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
         fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
 
-    # 🎯 **वेळ आणि प्राईस अचूक सेट केलेले लेआउट**
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         height=420,
@@ -361,7 +380,7 @@ if st.session_state.ohlc_data:
         yaxis=dict(side="right"),
         xaxis=dict(
             type='date',
-            tickformat='%H:%M',  # <--- वेळेचे तास आणि मिनिटे स्पष्ट दिसण्यासाठी
+            tickformat='%H:%M',
             tickangle=0
         )
     )
