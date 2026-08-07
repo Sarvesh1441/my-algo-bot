@@ -3,3 +3,5 @@ streamlit-autorefresh
 SmartApi-python
 pyotp
 requests
+plotly
+logzero
