@@ -8,6 +8,7 @@ import json
 import os
 import random
 from streamlit_autorefresh import st_autorefresh
+import plotly.graph_objects as go
 import pandas as pd
 
 # ==========================================
@@ -38,7 +39,7 @@ def load_state():
             pass
     return {}
 
-# 🔒 सुरक्षित स्टेट इनिशियलायझेशन
+# 🔒 सुरक्षित स्टेट इनिशियलायझेशन (फाइलमधून जुनी हिस्ट्री लोड करणे)
 saved_data = load_state()
 
 defaults = {
@@ -48,9 +49,9 @@ defaults = {
     "option_token": "",
     "premium_entry": 0.0,
     "entry_spot_price": 0.0,
-    "total_day_pnl": 0.0,
+    "total_day_pnl": saved_data.get("total_day_pnl", 0.0),
     "current_capital": saved_data.get("current_capital", INITIAL_CAPITAL),
-    "day_over": False,
+    "day_over": saved_data.get("day_over", False),
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
@@ -215,6 +216,12 @@ if st.session_state.day_over:
         st.session_state.trade_history = []
         save_state(dict(st.session_state))
         st.rerun()
+    
+    # जरी दिवस संपला तरी ट्रेड हिस्ट्री टेबल दिसेल
+    st.markdown("---")
+    st.subheader("📜 Today's Trade History & P&L Log")
+    if st.session_state.trade_history:
+        st.dataframe(pd.DataFrame(st.session_state.trade_history), use_container_width=True)
     st.stop()
 
 current_ts = int(ist_now.timestamp())
@@ -306,7 +313,7 @@ else:
         st.session_state.total_day_pnl += closed_pnl
         st.session_state.current_capital += closed_pnl  
         
-        # 📜 ट्रेड हिस्ट्रीमध्ये ॲड करणे
+        # 📜 ट्रेड हिस्ट्रीत सेव्ह करणे
         st.session_state.trade_history.append({
             "Time": current_time_str,
             "Symbol": st.session_state.selected_option,
@@ -361,7 +368,7 @@ else:
         st.session_state.total_day_pnl += closed_pnl
         st.session_state.current_capital += closed_pnl  
         
-        # 📜 ट्रेड हिस्ट्रीमध्ये ॲड करणे
+        # 📜 ट्रेड हिस्ट्रीत सेव्ह करणे
         st.session_state.trade_history.append({
             "Time": current_time_str,
             "Symbol": st.session_state.selected_option,
@@ -413,4 +420,4 @@ if st.session_state.trade_history:
     else:
         st.error(f"⚠️ **Total Day Realized P&L: -₹{abs(total_pnl_val):,.2f}**")
 else:
-    st.info("📭 आज अद्याप कोणतीही ट्रेड हिस्ट्री उपलब्ध नाही (ट्रेड पूर्ण झाल्यावर इथे रेकॉर्ड दिसेल).")
+    st.info("📭 आज पूर्ण झालेला ट्रेड इथे दिसेल.")
