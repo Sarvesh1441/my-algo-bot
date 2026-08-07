@@ -190,6 +190,29 @@ if st.session_state.day_over:
 current_ts = int(time.time()) + 19800
 is_active_trade = st.session_state.in_position
 
+# --- Live Premium Fetching for P&L ---
+live_option_premium = st.session_state.premium_entry
+trade_pnl = 0.0
+
+if is_active_trade:
+    if st.session_state.option_token:
+        try:
+            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
+            if opt_data and opt_data.get("status") and opt_data.get("data"):
+                live_option_premium = float(opt_data["data"]["ltp"])
+        except Exception:
+            pass
+    trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
+
+# 🎯 **सर्वळ्यात वर ठळकपणे दिसणारी LIVE RUNNING P&L पट्टी**
+if is_active_trade:
+    st.markdown("---")
+    if trade_pnl >= 0:
+        st.success(f"🟢 **LIVE RUNNING PROFIT: +₹{trade_pnl:,.2f}** (Entry: ₹{st.session_state.premium_entry:.2f} | Live: ₹{live_option_premium:.2f})")
+    else:
+        st.error(f"🔴 **LIVE RUNNING LOSS: -₹{abs(trade_pnl):,.2f}** (Entry: ₹{st.session_state.premium_entry:.2f} | Live: ₹{live_option_premium:.2f})")
+    st.markdown("---")
+
 # --- Waiting Mode ---
 if not is_active_trade:
     st.info(f"⏳ {trade_mode} सिस्टीम ब्रेकआऊटच्या प्रतीक्षेत आहे...")
@@ -246,18 +269,8 @@ if not is_active_trade:
 
 # --- Active Position Mode ---
 else:
-    live_option_premium = st.session_state.premium_entry
-    if st.session_state.option_token:
-        try:
-            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
-            if opt_data and opt_data.get("status") and opt_data.get("data"):
-                live_option_premium = float(opt_data["data"]["ltp"])
-        except Exception:
-            pass
-
     if not is_btst and now_time >= market_close_limit:
         st.warning("⏰ Intraday Square-off Time (3:15 PM) reached! Closing position...")
-        trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
         st.session_state.total_day_pnl += trade_pnl
         st.session_state.current_capital += trade_pnl  
         st.session_state.in_position = False
@@ -277,8 +290,6 @@ else:
         last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium))
         last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium))
         last_c["close"] = float(live_option_premium)
-
-    trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
 
     mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
     st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
@@ -304,7 +315,7 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. स्थिर Plotly लाईव्ह चार्ट (Entry, Target, SL Lines)
+# ५. स्थिर Plotly लाईव्ह चार्ट
 # ==========================================
 st.subheader("🕯️ Live Stable Trading Chart")
 
@@ -333,9 +344,3 @@ if st.session_state.ohlc_data:
         plot_bgcolor='white'
     )
     st.plotly_chart(fig, use_container_width=True)
-
-if is_active_trade:
-    if trade_pnl >= 0:
-        st.metric("Live Running Profit", f"+₹{trade_pnl:.2f}")
-    else:
-        st.metric("Live Running Loss", f"-₹{abs(trade_pnl):.2f}", delta_color="inverse")
