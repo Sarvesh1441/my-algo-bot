@@ -8,7 +8,7 @@ import json
 import os
 import random
 from streamlit_autorefresh import st_autorefresh
-import plotly.graph_objects as go
+import pandas as pd
 
 # ==========================================
 # १. पेज आणि डायनॅमिक कॅपिटल सेटिंग्ज
@@ -144,7 +144,7 @@ def fetch_latest_angel_token(strike_price, option_type):
         pass
     return None, None, None
 
-# ⏱️ **टाईम फ्रेम सिलेक्टर (1-Min, 5-Min, 15-Min)**
+# ⏱️ टाईम फ्रेम सिलेक्टर
 col_tf1, col_tf2 = st.columns(2)
 with col_tf1:
     trade_mode = st.radio(
@@ -171,7 +171,7 @@ if time_frame == "1-Min":
 elif time_frame == "15-Min":
     tf_seconds = 900
 else:
-    tf_seconds = 300  # 5-Min
+    tf_seconds = 300  
 
 # CPR Levels Setup
 high_prev = 24650.00
@@ -232,7 +232,6 @@ if is_active_trade:
             pass
     trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
 
-# 🎯 सर्वात वर ठळकपणे दिसणारी LIVE RUNNING P&L पट्टी
 if is_active_trade:
     st.markdown("---")
     if trade_pnl >= 0:
@@ -350,38 +349,17 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. टाईम फ्रेम सपोर्ट असलेला स्थिर Plotly चार्ट
+# ५. १००% न गायब होणारा सुपर-स्टेबल चार्ट इंजिन
 # ==========================================
-st.subheader(f"🕯️ Live Stable Trading Chart ({time_frame})")
+st.subheader(f"📈 Live Stable Price Chart ({time_frame})")
 
 if st.session_state.ohlc_data:
-    times = [datetime.datetime.fromtimestamp(d["time"]) for d in st.session_state.ohlc_data]
-    opens = [d["open"] for d in st.session_state.ohlc_data]
-    highs = [d["high"] for d in st.session_state.ohlc_data]
-    lows = [d["low"] for d in st.session_state.ohlc_data]
-    closes = [d["close"] for d in st.session_state.ohlc_data]
-
-    fig = go.Figure(data=[go.Candlestick(
-        x=times, open=opens, high=highs, low=lows, close=closes,
-        increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
-    )])
-
+    df_chart = pd.DataFrame(st.session_state.ohlc_data)
+    df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
+    df_chart.set_index("Time", inplace=True)
+    
+    # फक्त क्लोज प्राईसची लाईन जी कधीही गायब होत नाही
+    st.line_chart(df_chart["close"], height=400)
+    
     if is_active_trade:
-        fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
-        fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
-        fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
-
-    fig.update_layout(
-        xaxis_rangeslider_visible=False,
-        height=420,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        yaxis=dict(side="right"),
-        xaxis=dict(
-            type='date',
-            tickformat='%H:%M',
-            tickangle=0
-        )
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        st.info(f"🔵 Entry: ₹{st.session_state.premium_entry} | 🟢 Target: ₹{st.session_state.current_tgt} | 🔴 SL: ₹{st.session_state.current_sl}")
