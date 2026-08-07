@@ -163,7 +163,7 @@ c3.metric("📊 BC Level (Bottom)", f"₹{bottom_cpr:.2f}")
 st.markdown("---")
 
 # ==========================================
-# ४. मुख्य ट्रॅकिंग आणि कॅपिटल अपडेट लॉजिक
+# ४. मुख्य ट्रॅकिंग आणि ऑर्डर एक्झिक्युशन लॉजिक
 # ==========================================
 spot_price = 24630.00
 try:
@@ -179,7 +179,7 @@ now_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, m
 market_close_limit = datetime.time(15, 15)
 
 if st.session_state.day_over:
-    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा P&L: ₹{st.session_state.total_day_pnl:,.2f} | नवीन एकूण कॅपिटल: ₹{st.session_state.current_capital:,.2f}")
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा P&L: ₹{st.session_state.total_day_pnl:,.2f} | नवीन कॅपिटल: ₹{st.session_state.current_capital:,.2f}")
     if st.button("🔄 नवीन दिवसासाठी रीसेट करा"):
         st.session_state.day_over = False
         st.session_state.total_day_pnl = 0.0
@@ -304,7 +304,7 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. कधीही गायब न होणारा Plotly लाईव्ह चार्ट
+# ५. स्थिर Plotly लाईव्ह चार्ट (Entry, Target, SL Lines)
 # ==========================================
 st.subheader("🕯️ Live Stable Trading Chart")
 
