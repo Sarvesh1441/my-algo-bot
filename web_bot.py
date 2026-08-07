@@ -52,7 +52,6 @@ defaults = {
     "total_day_pnl": saved_data.get("total_day_pnl", 0.0),
     "current_capital": saved_data.get("current_capital", INITIAL_CAPITAL),
     "day_over": saved_data.get("day_over", False),
-    "trade_count": saved_data.get("trade_count", 0),  # 🔢 आज झालेली ट्रेडची संख्या
     "current_sl": 0.0,
     "current_tgt": 0.0,
     "sl_trailed_to_cost": False,
@@ -87,8 +86,7 @@ st.title("📊 Intraday & BTST Live Algo Dashboard")
 st.markdown(f"🕒 **Live Market Time:** `{current_date_str} | {current_time_str} IST`")
 st.subheader(
     f"💰 Current Capital: ₹{CURRENT_CAPITAL:,.2f} | "
-    f"Lots: {calculated_lots} (Qty: {LOT_SIZE}) | "
-    f"📊 Today's Trades: {st.session_state.trade_count}/2"
+    f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
 )
 
 # ==========================================
@@ -184,4 +182,270 @@ close_prev = 24580.00
 
 pivot = round((high_prev + low_prev + close_prev) / 3, 2)
 bc = round((high_prev + low_prev) / 2, 2)
-tc = round
+tc = round((pivot - bc) + pivot, 2)
+top_cpr = max(tc, bc)
+bottom_cpr = min(tc, bc)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("📊 TC Level (Top)", f"₹{top_cpr:.2f}")
+c2.metric("📊 Pivot Level (Center)", f"₹{pivot:.2f}")
+c3.metric("📊 BC Level (Bottom)", f"₹{bottom_cpr:.2f}")
+st.markdown("---")
+
+# ==========================================
+# ४. मुख्य ट्रॅकिंग आणि ऑर्डर एक्झिक्युशन लॉजिक
+# ==========================================
+spot_price = 24630.00
+try:
+    spot_data = smart_api.ltpData("NSE", "NIFTY", "99926000")
+    if spot_data and spot_data.get("status") and spot_data.get("data"):
+        spot_price = float(spot_data["data"]["ltp"])
+except Exception:
+    pass
+
+st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
+
+now_time = ist_now.time()
+market_close_limit = datetime.time(15, 15)
+
+if st.session_state.day_over:
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | एकूण P&L: ₹{st.session_state.total_day_pnl:,.2f} | कॅपिटल: ₹{st.session_state.current_capital:,.2f}")
+    if st.button("🔄 नवीन दिवसासाठी रीसेट करा"):
+        st.session_state.day_over = False
+        st.session_state.total_day_pnl = 0.0
+        st.session_state.trade_history = []
+        save_state(dict(st.session_state))
+        st.rerun()
+    
+    st.markdown("---")
+    st.subheader("📜 Today's Trade History & P&L Log")
+    if st.session_state.trade_history:
+        st.dataframe(pd.DataFrame(st.session_state.trade_history), use_container_width=True)
+    st.stop()
+
+current_ts = int(ist_now.timestamp())
+is_active_trade = st.session_state.in_position
+
+# --- Live Premium & PnL Calculation ---
+live_option_premium = st.session_state.premium_entry
+trade_pnl = 0.0
+
+if is_active_trade:
+    if st.session_state.option_token:
+        try:
+            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, str(st.session_state.option_token))
+            if opt_data and opt_data.get("status") and opt_data.get("data"):
+                live_option_premium = float(opt_data["data"]["ltp"])
+        except Exception:
+            pass
+    trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
+
+if is_active_trade:
+    st.markdown("---")
+    if trade_pnl >= 0:
+        st.success(f"🟢 **LIVE RUNNING PROFIT: +₹{trade_pnl:,.2f}** (Entry: ₹{st.session_state.premium_entry:.2f} | Live: ₹{live_option_premium:.2f})")
+    else:
+        st.error(f"🔴 **LIVE RUNNING LOSS: -₹{abs(trade_pnl):,.2f}** (Entry: ₹{st.session_state.premium_entry:.2f} | Live: ₹{live_option_premium:.2f})")
+    st.markdown("---")
+
+# --- Waiting Mode ---
+if not is_active_trade:
+    st.info(f"⏳ {trade_mode} सिस्टीम [{time_frame}] ब्रेकआऊटच्या प्रतीक्षेत आहे...")
+    
+    if not st.session_state.ohlc_data:
+        st.session_state.ohlc_data = []
+        p = 181.15
+        for i in range(25, 0, -1):
+            o = p
+            c = p + random.choice([-0.5, 0.5, 0.8, -0.6])
+            h = max(o, c) + 0.4
+            l = min(o, c) - 0.4
+            st.session_state.ohlc_data.append({
+                "time": current_ts - (i * tf_seconds),
+                "open": round(o, 2), "high": round(h, 2),
+                "low": round(l, 2), "close": round(c, 2)
+            })
+            p = c
+            
+    if spot_price > top_cpr or spot_price < bottom_cpr:
+        trade_type = "CE" if spot_price > top_cpr else "PE"
+        atm_strike = round(spot_price / 50) * 50
+        itm_strike = atm_strike - 50 if trade_type == "CE" else atm_strike + 50
+        
+        token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
+        if token and symbol_name:
+            opt_data = smart_api.ltpData("NFO", symbol_name, str(token))
+            entry_premium = 181.15
+            if opt_data and opt_data.get("status") and opt_data.get("data"):
+                entry_premium = float(opt_data["data"]["ltp"])
+            
+            st.session_state.trade_type = trade_type
+            st.session_state.selected_option = symbol_name
+            st.session_state.option_token = token
+            st.session_state.premium_entry = entry_premium
+            st.session_state.current_sl = entry_premium - SL_POINTS
+            st.session_state.current_tgt = entry_premium + (45 if is_btst else 30)
+            st.session_state.sl_trailed_to_cost = False
+            
+            st.session_state.ohlc_data = []
+            p = entry_premium
+            for i in range(25, 0, -1):
+                o = p
+                c = p + random.choice([-0.4, 0.4])
+                h = max(o, c) + 0.3
+                l = min(o, c) - 0.3
+                st.session_state.ohlc_data.append({
+                    "time": current_ts - (i * tf_seconds),
+                    "open": round(o, 2), "high": round(h, 2),
+                    "low": round(l, 2), "close": round(c, 2)
+                })
+                p = c
+            st.session_state.in_position = True
+            save_state(dict(st.session_state))
+            st.rerun()
+
+# --- Active Position Mode ---
+else:
+    if not is_btst and now_time >= market_close_limit:
+        st.warning("⏰ Intraday Square-off Time (3:15 PM) reached! Closing position...")
+        closed_pnl = trade_pnl
+        st.session_state.total_day_pnl += closed_pnl
+        st.session_state.current_capital += closed_pnl  
+        
+        st.session_state.trade_history.append({
+            "Time": current_time_str,
+            "Symbol": st.session_state.selected_option,
+            "Type": st.session_state.trade_type,
+            "Entry": st.session_state.premium_entry,
+            "Exit": live_option_premium,
+            "P&L (₹)": round(closed_pnl, 2)
+        })
+        
+        st.session_state.in_position = False
+        st.session_state.day_over = True
+        save_state(dict(st.session_state))
+        st.rerun()
+
+    if not st.session_state.sl_trailed_to_cost:
+        if (live_option_premium - st.session_state.premium_entry) >= 20:
+            st.session_state.current_sl = st.session_state.premium_entry
+            st.session_state.current_tgt = st.session_state.premium_entry + (80 if is_btst else 65)
+            st.session_state.sl_trailed_to_cost = True
+            save_state(dict(st.session_state))
+
+    # 🕯️ लाईव्ह कॅन्डलस्टिक डेटा अपडेट लॉजिक
+    if not st.session_state.ohlc_data:
+        base_v = float(st.session_state.premium_entry)
+        st.session_state.ohlc_data = [{
+            "time": current_ts, "open": base_v,
+            "high": base_v + 0.5, "low": base_v - 0.5, "close": base_v
+        }]
+    else:
+        last_c = st.session_state.ohlc_data[-1]
+        if current_ts - last_c["time"] >= tf_seconds:
+            st.session_state.ohlc_data.append({
+                "time": current_ts, "open": float(live_option_premium),
+                "high": float(live_option_premium) + 0.3, "low": float(live_option_premium) - 0.3,
+                "close": float(live_option_premium)
+            })
+        else:
+            last_c["close"] = float(live_option_premium)
+            last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium + 0.2))
+            last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium - 0.2))
+
+    mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
+    st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Buy Entry Price", f"₹{st.session_state.premium_entry:.2f}")
+    c2.metric("⚡ Live Premium", f"₹{live_option_premium:.2f}", delta=f"{live_option_premium - st.session_state.premium_entry:.2f} pts")
+    
+    sl_lbl = "Cost-to-Cost" if st.session_state.sl_trailed_to_cost else "Original SL"
+    c3.metric("Current SL", f"₹{st.session_state.current_sl:.2f}", delta=sl_lbl)
+    
+    tgt_lbl = "1:3 Target" if st.session_state.sl_trailed_to_cost else "Primary Tgt"
+    c4.metric("Dynamic Target", f"₹{st.session_state.current_tgt:.2f}", delta=tgt_lbl)
+    
+    st.markdown("---")
+
+    if live_option_premium >= st.session_state.current_tgt or live_option_premium <= st.session_state.current_sl:
+        closed_pnl = trade_pnl
+        st.session_state.total_day_pnl += closed_pnl
+        st.session_state.current_capital += closed_pnl  
+        
+        st.session_state.trade_history.append({
+            "Time": current_time_str,
+            "Symbol": st.session_state.selected_option,
+            "Type": st.session_state.trade_type,
+            "Entry": st.session_state.premium_entry,
+            "Exit": live_option_premium,
+            "P&L (₹)": round(closed_pnl, 2)
+        })
+        
+        st.session_state.in_position = False
+        st.session_state.day_over = True
+        save_state(dict(st.session_state))
+        st.rerun()
+
+# ==========================================
+# ५. ट्रेडिंगव्ह्यू कॅन्डलस्टिक चार्ट सेक्शन
+# ==========================================
+st.subheader(f"🕯️ Live TradingView Standalone Chart ({time_frame})")
+
+try:
+    if not st.session_state.ohlc_data:
+        base_val = float(st.session_state.premium_entry) if is_active_trade else 181.15
+        st.session_state.ohlc_data = [{
+            "time": current_ts, "open": base_val, "high": base_val + 1, "low": base_val - 1, "close": base_val
+        }]
+    
+    df_chart = pd.DataFrame(st.session_state.ohlc_data)
+    df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
+    
+    fig = go.Figure(data=[go.Candlestick(
+        x=df_chart["Time"],
+        open=df_chart["open"],
+        high=df_chart["high"],
+        low=df_chart["low"],
+        close=df_chart["close"],
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350'
+    )])
+
+    if is_active_trade:
+        fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
+        fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
+        fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
+
+    fig.update_layout(
+        xaxis_rangeslider_visible=False,
+        height=450,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        yaxis=dict(side="right", autorange=True),
+        xaxis=dict(type='date', tickformat='%H:%M')
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    if is_active_trade:
+        st.info(f"🔵 **Trade Levels** ➔ Entry: ₹{st.session_state.premium_entry} | Target: ₹{st.session_state.current_tgt} | StopLoss: ₹{st.session_state.current_sl}")
+except Exception as e:
+    st.info("📊 कॅन्डलस्टिक चार्ट लोड होत आहे...")
+
+# 📜 **Trade History Table Section**
+st.markdown("---")
+st.subheader("📜 Today's Trade History & P&L Log")
+
+if st.session_state.trade_history:
+    df_history = pd.DataFrame(st.session_state.trade_history)
+    st.dataframe(df_history, use_container_width=True)
+    
+    total_pnl_val = sum([t["P&L (₹)"] for t in st.session_state.trade_history])
+    if total_pnl_val >= 0:
+        st.success(f"🎉 **Total Day Realized P&L: +₹{total_pnl_val:,.2f}**")
+    else:
+        st.error(f"⚠️ **Total Day Realized P&L: -₹{abs(total_pnl_val):,.2f}**")
+else:
+    st.info("📭 आज पूर्ण झालेला ट्रेड हिस्ट्री टेबलमध्ये दिसेल.")
