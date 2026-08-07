@@ -246,7 +246,7 @@ if not is_active_trade:
     
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
-        p = 135.0
+        p = 140.0
         for i in range(35, 0, -1):
             o = p
             c = p + random.choice([-1.5, -0.5, 1.0, 2.0])
@@ -313,9 +313,10 @@ else:
             save_state(dict(st.session_state))
 
     if not st.session_state.ohlc_data:
+        base_v = float(st.session_state.premium_entry)
         st.session_state.ohlc_data = [{
-            "time": current_ts, "open": float(st.session_state.premium_entry),
-            "high": float(live_option_premium), "low": float(live_option_premium), "close": float(live_option_premium)
+            "time": current_ts, "open": base_v,
+            "high": base_v + 1.0, "low": base_v - 1.0, "close": base_v
         }]
     else:
         last_c = st.session_state.ohlc_data[-1]
@@ -362,7 +363,7 @@ try:
     df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
     df_chart.set_index("Time", inplace=True)
     
-    # चार्टवर फक्त क्लोज प्राईस अचूक स्केलमध्ये दिसेल
+    # चार्ट स्केल थेट प्रीमियमच्या किमतीवर झूम ठेवण्यासाठी
     st.line_chart(df_chart[["close"]], height=380, color="#26a69a")
     
     if is_active_trade:
