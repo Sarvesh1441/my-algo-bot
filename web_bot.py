@@ -248,11 +248,17 @@ if not is_active_trade:
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
         p = 140.0
-        for i in range(20, 0, -1):
-            p += random.choice([-0.8, 0.8, 1.2, -1.0])
+        for i in range(25, 0, -1):
+            o = p
+            c = p + random.choice([-1.0, 1.0, 1.5, -1.2])
+            h = max(o, c) + 0.8
+            l = min(o, c) - 0.8
             st.session_state.ohlc_data.append({
-                "time": current_ts - (i * 15), "close": round(p, 2)
+                "time": current_ts - (i * tf_seconds),
+                "open": round(o, 2), "high": round(h, 2),
+                "low": round(l, 2), "close": round(c, 2)
             })
+            p = c
             
     if spot_price > top_cpr or spot_price < bottom_cpr:
         trade_type = "CE" if spot_price > top_cpr else "PE"
@@ -276,11 +282,17 @@ if not is_active_trade:
             
             st.session_state.ohlc_data = []
             p = entry_premium
-            for i in range(20, 0, -1):
-                p += random.choice([-0.5, 0.5])
+            for i in range(25, 0, -1):
+                o = p
+                c = p + random.choice([-0.8, 0.8])
+                h = max(o, c) + 0.5
+                l = min(o, c) - 0.5
                 st.session_state.ohlc_data.append({
-                    "time": current_ts - (i * 15), "close": round(p, 2)
+                    "time": current_ts - (i * tf_seconds),
+                    "open": round(o, 2), "high": round(h, 2),
+                    "low": round(l, 2), "close": round(c, 2)
                 })
+                p = c
             st.session_state.in_position = True
             save_state(dict(st.session_state))
             st.rerun()
@@ -303,15 +315,26 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # 📈 सुधारित लाईव्ह प्राईस पुशिंग (Syntax Corrected)
+    # 🕯️ लाईव्ह कॅन्डलस्टिक डेटा अपडेट करणे
     if not st.session_state.ohlc_data:
-        st.session_state.ohlc_data = [{"time": current_ts, "close": float(live_option_premium)}]
+        base_v = float(st.session_state.premium_entry)
+        st.session_state.ohlc_data = [{
+            "time": current_ts, "open": base_v,
+            "high": base_v + 1.0, "low": base_v - 1.0, "close": base_v
+        }]
     else:
-        last_entry = st.session_state.ohlc_data[-1]
-        if current_ts - last_entry["time"] >= 2:
-            st.session_state.ohlc_data.append({"time": current_ts, "close": float(live_option_premium)})
+        last_c = st.session_state.ohlc_data[-1]
+        # जर काळ बदलला तर नवीन कॅन्डल, नाहीतर चालू कॅन्डल अपडेट होईल
+        if current_ts - last_c["time"] >= tf_seconds:
+            st.session_state.ohlc_data.append({
+                "time": current_ts, "open": float(live_option_premium),
+                "high": float(live_option_premium), "low": float(live_option_premium),
+                "close": float(live_option_premium)
+            })
         else:
-            st.session_state.ohlc_data[-1]["close"] = float(live_option_premium)
+            last_c["close"] = float(live_option_premium)
+            last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium))
+            last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium))
 
     mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
     st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
@@ -337,32 +360,40 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. खऱ्या लाईव्ह मुव्हमेंट असलेला प्लॉटली चार्ट
+# ५. प्लॉटलीचा खऱ्या कॅन्डलस्टिकचा चार्ट सेक्शन
 # ==========================================
-st.subheader(f"📈 Live Moving Price Chart ({time_frame})")
+st.subheader(f"🕯️ Live Candlestick Trading Chart ({time_frame})")
 
 try:
     if not st.session_state.ohlc_data:
         base_val = float(st.session_state.premium_entry) if is_active_trade else 140.0
-        st.session_state.ohlc_data = [{"time": current_ts, "close": base_val}]
+        st.session_state.ohlc_data = [{
+            "time": current_ts, "open": base_val, "high": base_val + 2, "low": base_val - 2, "close": base_val
+        }]
     
     df_chart = pd.DataFrame(st.session_state.ohlc_data)
     df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df_chart["Time"], y=df_chart["close"],
-        mode='lines+markers', name='Live Premium',
-        line=dict(color='#26a69a', width=3)
-    ))
+    # 📈 प्लॉटली कॅन्डलस्टिक चार्ट ऑब्जेक्ट
+    fig = go.Figure(data=[go.Candlestick(
+        x=df_chart["Time"],
+        open=df_chart["open"],
+        high=df_chart["high"],
+        low=df_chart["low"],
+        close=df_chart["close"],
+        increasing_line_color='#26a69a',  # हिरवी कॅन्डल
+        decreasing_line_color='#ef5350'   # लाल कॅन्डल
+    )])
 
+    # ट्रेड चालू असल्यास चार्टवर एंट्री, टार्गेट आणि एसएल रेषा
     if is_active_trade:
         fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
         fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
 
     fig.update_layout(
-        height=400,
+        xaxis_rangeslider_visible=False,
+        height=420,
         margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor='white',
         plot_bgcolor='white',
@@ -375,4 +406,4 @@ try:
     if is_active_trade:
         st.info(f"🔵 **Trade Levels** ➔ Entry: ₹{st.session_state.premium_entry} | Target: ₹{st.session_state.current_tgt} | StopLoss: ₹{st.session_state.current_sl}")
 except Exception as e:
-    st.info("📊 चार्ट अपडेट होत आहे...")
+    st.info("📊 कॅन्डलस्टिक चार्ट लोड होत आहे...")
