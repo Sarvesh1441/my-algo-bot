@@ -215,7 +215,7 @@ if is_active_trade:
 
 # --- Waiting Mode ---
 if not is_active_trade:
-    st.info(f"⏳ {trade_mode} सिस्टीम ब्रेकआऊटच्या प्रतीक्षेत आहे...")
+    st.info(f"⏳ {trade_mode} सिस्टीम CE किंवा PE ब्रेकआऊटच्या प्रतीक्षेत आहे...")
     
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
@@ -315,7 +315,7 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. स्थिर Plotly लाईव्ह चार्ट
+# ५. प्राईस उजव्या बाजूला असलेला स्थिर Plotly चार्ट
 # ==========================================
 st.subheader("🕯️ Live Stable Trading Chart")
 
@@ -336,11 +336,13 @@ if st.session_state.ohlc_data:
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
         fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
 
+    # 🎯 **किमतीचा (Price Scale) भाग उजव्या बाजूला हलवण्यासाठी सेट केलेले लेआउट**
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         height=420,
         margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor='white',
-        plot_bgcolor='white'
+        plot_bgcolor='white',
+        yaxis=dict(side="right")  # <--- ही महत्त्वाची लाईन प्राईस उजवीकडे नेते
     )
     st.plotly_chart(fig, use_container_width=True)
