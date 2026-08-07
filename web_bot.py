@@ -107,7 +107,7 @@ if smart_api is None:
     st.stop()
 
 # ==========================================
-# ३. एक्सपायरी आणि टोकन शोधणे
+# ३. एक्सपायरी आणि टोकन अचूक शोधणे
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_latest_angel_token(strike_price, option_type):
@@ -179,7 +179,7 @@ now_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, m
 market_close_limit = datetime.time(15, 15)
 
 if st.session_state.day_over:
-    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | आजचा P&L: ₹{st.session_state.total_day_pnl:,.2f} | नवीन कॅपिटल: ₹{st.session_state.current_capital:,.2f}")
+    st.warning(f"🔒 आजचा सेटअप पूर्ण झाला आहे! | P&L: ₹{st.session_state.total_day_pnl:,.2f} | कॅपिटल: ₹{st.session_state.current_capital:,.2f}")
     if st.button("🔄 नवीन दिवसासाठी रीसेट करा"):
         st.session_state.day_over = False
         st.session_state.total_day_pnl = 0.0
@@ -190,21 +190,21 @@ if st.session_state.day_over:
 current_ts = int(time.time()) + 19800
 is_active_trade = st.session_state.in_position
 
-# --- Live Premium Fetching for P&L ---
+# --- Live Premium & PnL Calculation ---
 live_option_premium = st.session_state.premium_entry
 trade_pnl = 0.0
 
 if is_active_trade:
     if st.session_state.option_token:
         try:
-            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, st.session_state.option_token)
+            opt_data = smart_api.ltpData("NFO", st.session_state.selected_option, str(st.session_state.option_token))
             if opt_data and opt_data.get("status") and opt_data.get("data"):
                 live_option_premium = float(opt_data["data"]["ltp"])
         except Exception:
             pass
     trade_pnl = (live_option_premium - st.session_state.premium_entry) * LOT_SIZE
 
-# 🎯 **सर्वळ्यात वर ठळकपणे दिसणारी LIVE RUNNING P&L पट्टी**
+# 🎯 सर्वात वर ठळकपणे दिसणारी LIVE RUNNING P&L पट्टी
 if is_active_trade:
     st.markdown("---")
     if trade_pnl >= 0:
@@ -219,12 +219,12 @@ if not is_active_trade:
     
     if not st.session_state.ohlc_data:
         st.session_state.ohlc_data = []
-        p = spot_price - 8.0
+        p = 135.0
         for i in range(35, 0, -1):
             o = p
-            c = p + random.choice([-2.5, -1.0, 1.5, 3.5])
-            h = max(o, c) + random.uniform(0.4, 1.2)
-            l = min(o, c) - random.uniform(0.4, 1.2)
+            c = p + random.choice([-1.5, -0.5, 1.0, 2.0])
+            h = max(o, c) + 0.8
+            l = min(o, c) - 0.8
             st.session_state.ohlc_data.append({
                 "time": current_ts - (i * 300), "open": round(o, 2),
                 "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
@@ -238,7 +238,7 @@ if not is_active_trade:
         
         token, symbol_name, _ = fetch_latest_angel_token(itm_strike, trade_type)
         if token and symbol_name:
-            opt_data = smart_api.ltpData("NFO", symbol_name, token)
+            opt_data = smart_api.ltpData("NFO", symbol_name, str(token))
             entry_premium = 140.00
             if opt_data and opt_data.get("status") and opt_data.get("data"):
                 entry_premium = float(opt_data["data"]["ltp"])
@@ -255,9 +255,9 @@ if not is_active_trade:
             p = entry_premium - 4.0
             for i in range(35, 0, -1):
                 o = p
-                c = p + random.choice([-1.0, 0.5, 1.8])
-                h = max(o, c) + random.uniform(0.2, 0.6)
-                l = min(o, c) - random.uniform(0.2, 0.6)
+                c = p + random.choice([-1.0, 0.5, 1.2])
+                h = max(o, c) + 0.5
+                l = min(o, c) - 0.5
                 st.session_state.ohlc_data.append({
                     "time": current_ts - (i * 300), "open": round(o, 2),
                     "high": round(h, 2), "low": round(l, 2), "close": round(c, 2)
