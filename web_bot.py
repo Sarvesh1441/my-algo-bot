@@ -285,10 +285,20 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
+    # 🛑 **मोठी स्पाइक कॅन्डल कंट्रोल करणारी लॉजिक (Spike Limiter)**
     if st.session_state.ohlc_data:
         last_c = st.session_state.ohlc_data[-1]
-        last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium))
-        last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium))
+        open_p = last_c.get("open", live_option_premium)
+        
+        # हाय आणि लो च्या मर्यादेवर कॅप (जास्तीत जास्त ±8 ते १० पॉईंट्सची मूव्हमेंट एका कॅन्डलमध्ये)
+        max_allowed_high = open_p + 10.0
+        min_allowed_low = open_p - 10.0
+        
+        calculated_high = float(max(last_c.get("high", live_option_premium), live_option_premium))
+        calculated_low = float(min(last_c.get("low", live_option_premium), live_option_premium))
+        
+        last_c["high"] = min(calculated_high, max_allowed_high)
+        last_c["low"] = max(calculated_low, min_allowed_low)
         last_c["close"] = float(live_option_premium)
 
     mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
@@ -336,13 +346,12 @@ if st.session_state.ohlc_data:
         fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
         fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
 
-    # 🎯 **किमतीचा (Price Scale) भाग उजव्या बाजूला हलवण्यासाठी सेट केलेले लेआउट**
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         height=420,
         margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor='white',
         plot_bgcolor='white',
-        yaxis=dict(side="right")  # <--- ही महत्त्वाची लाईन प्राईस उजवीकडे नेते
+        yaxis=dict(side="right")
     )
     st.plotly_chart(fig, use_container_width=True)
