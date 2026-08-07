@@ -193,7 +193,8 @@ if st.session_state.day_over:
         st.rerun()
     st.stop()
 
-current_ts = int(time.time()) + 19800
+# 🕒 अचूक रिअल-टाइम युनिक्स स्टॅम्प (IST नुसार)
+current_ts = int(ist_now.timestamp())
 is_active_trade = st.session_state.in_position
 
 # --- Live Premium & PnL Calculation ---
@@ -328,12 +329,13 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. अचूक वेळेचा (Time Format) असलेला स्थिर Plotly चार्ट
+# ५. अचूक वेळेसह (IST Time Axis) असलेला स्थिर Plotly चार्ट
 # ==========================================
 st.subheader("🕯️ Live Stable Trading Chart")
 
 if st.session_state.ohlc_data:
-    times = [datetime.datetime.fromtimestamp(d["time"] - 19800) for d in st.session_state.ohlc_data]
+    # 🕒 युनिक्स स्टॅम्प थेट योग्य आयएसटी वेळेत रूपांतरित करणे
+    times = [datetime.datetime.fromtimestamp(d["time"]) for d in st.session_state.ohlc_data]
     opens = [d["open"] for d in st.session_state.ohlc_data]
     highs = [d["high"] for d in st.session_state.ohlc_data]
     lows = [d["low"] for d in st.session_state.ohlc_data]
@@ -360,7 +362,7 @@ if st.session_state.ohlc_data:
         xaxis=dict(
             type='date',
             tickformat='%H:%M',  # <--- वेळेचे तास आणि मिनिटे स्पष्ट दिसण्यासाठी
-            dtick="M30"
+            tickangle=0
         )
     )
     st.plotly_chart(fig, use_container_width=True)
