@@ -8,7 +8,7 @@ import json
 import os
 import random
 from streamlit_autorefresh import st_autorefresh
-import streamlit.components.v1 as components
+import pandas as pd
 
 # ==========================================
 # १. पेज आणि डायनॅमिक कॅपिटल सेटिंग्ज
@@ -144,7 +144,7 @@ def fetch_latest_angel_token(strike_price, option_type):
         pass
     return None, None, None
 
-# ⏱️ टाईम फ्रेम सिलेक्टर
+# ⏱️ टाईम फ्रेम आणि मोड सिलेक्टर
 col_tf1, col_tf2 = st.columns(2)
 with col_tf1:
     trade_mode = st.radio(
@@ -314,16 +314,9 @@ else:
 
     if st.session_state.ohlc_data:
         last_c = st.session_state.ohlc_data[-1]
-        open_p = last_c.get("open", live_option_premium)
-        max_allowed_high = open_p + 10.0
-        min_allowed_low = open_p - 10.0
-        
-        calculated_high = float(max(last_c.get("high", live_option_premium), live_option_premium))
-        calculated_low = float(min(last_c.get("low", live_option_premium), live_option_premium))
-        
-        last_c["high"] = min(calculated_high, max_allowed_high)
-        last_c["low"] = max(calculated_low, min_allowed_low)
         last_c["close"] = float(live_option_premium)
+        last_c["high"] = float(max(last_c.get("high", live_option_premium), live_option_premium))
+        last_c["low"] = float(min(last_c.get("low", live_option_premium), live_option_premium))
 
     mode_badge = "🌙 BTST (Overnight Hold)" if is_btst else "⚡ Intraday (Square-off at 3:15)"
     st.write(f"### 🎯 Active Position [{mode_badge}]: **{st.session_state.selected_option}**")
@@ -349,62 +342,17 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. ट्रेडिंगव्ह्यू कॅन्डलस्टिक चार्ट (कधीही न गायब होणारा)
+# ५. १००% स्टेबल आणि न गायब होणारा नेटिव्ह चार्ट
 # ==========================================
-st.subheader(f"🕯️ Live TradingView Standalone Chart ({time_frame})")
+st.subheader(f"📈 Live Price Movement Chart ({time_frame})")
 
-tv_json_data = json.dumps(st.session_state.ohlc_data)
-entry_p = float(st.session_state.premium_entry) if is_active_trade else 0.0
-sl_p = float(st.session_state.current_sl) if is_active_trade else 0.0
-tgt_p = float(st.session_state.current_tgt) if is_active_trade else 0.0
-live_p = float(live_option_premium if is_active_trade else spot_price)
-
-pnl_color = '#00E676' if trade_pnl >= 0 else '#FF1744'
-pnl_text = f"LIVE P&L: +₹{trade_pnl:.2f}" if trade_pnl >= 0 else f"LIVE P&L: -₹{abs(trade_pnl):.2f}"
-
-raw_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <style>
-        body {{ margin: 0; padding: 0; background-color: #ffffff; }}
-        #chart_div {{ width: 100%; height: 420px; }}
-    </style>
-</head>
-<body>
-    <div id="chart_div"></div>
-    <script>
-        const container = document.getElementById('chart_div');
-        const chart = LightweightCharts.createChart(container, {{
-            width: container.clientWidth,
-            height: 420,
-            layout: {{ backgroundColor: '#ffffff', textColor: '#333333' }},
-            grid: {{ vertLines: {{ color: '#f0f3fa' }}, horzLines: {{ color: '#f0f3fa' }} }},
-            crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-            priceScale: {{ position: 'right', borderVisible: true }},
-            timeScale: {{ borderVisible: true, timeVisible: true, secondsVisible: false, barSpacing: 10 }}
-        }});
-        
-        const candleSeries = chart.addCandlestickSeries({{
-            upColor: '#26a69a', downColor: '#ef5350',
-            borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-            wickUpColor: '#26a69a', wickDownColor: '#ef5350'
-        }});
-        
-        const chartData = {tv_json_data};
-        candleSeries.setData(chartData);
-        chart.timeScale().fitContent();
-        
-        if ({str(is_active_trade).lower()}) {{
-            candleSeries.createPriceLine({{ price: {entry_p}, color: '#2962FF', lineWidth: 2, title: 'ENTRY: ₹{entry_p}' }});
-            candleSeries.createPriceLine({{ price: {tgt_p}, color: '#00C853', lineWidth: 2, title: 'TARGET: ₹{tgt_p}' }});
-            candleSeries.createPriceLine({{ price: {sl_p}, color: '#D50000', lineWidth: 2, title: 'SL: ₹{sl_p}' }});
-            candleSeries.createPriceLine({{ price: {live_p}, color: '{pnl_color}', lineWidth: 2, title: '{pnl_text}' }});
-        }}
-
-        window.addEventListener('resize', () => chart.resize(container.clientWidth, 420));
-    </script>
-</body>
-</html>"""
-
-components.html(raw_html, height=430, scrolling=False)
+if st.session_state.ohlc_data:
+    df_chart = pd.DataFrame(st.session_state.ohlc_data)
+    df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
+    df_chart.set_index("Time", inplace=True)
+    
+    # हाय-स्पीड स्टेबल लाईन चार्ट (कधीही ब्लॅक किंवा पांढरा होणार नाही)
+    st.line_chart(df_chart[["close", "high", "low"]], height=400, color=["#26a69a", "#00C853", "#D50000"])
+    
+    if is_active_trade:
+        st.info(f"🔵 **Active Trade Levels** ➔ Entry: ₹{st.session_state.premium_entry} | Target: ₹{st.session_state.current_tgt} | StopLoss: ₹{st.session_state.current_sl}")
