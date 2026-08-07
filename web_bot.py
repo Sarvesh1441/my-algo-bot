@@ -74,7 +74,13 @@ if calculated_lots < 1:
     calculated_lots = 1
 LOT_SIZE = calculated_lots * NIFTY_LOT_SIZE
 
+# 🕒 **लाईव्ह रिअल-टाइम घड्याळ (IST Time)**
+ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+current_time_str = ist_now.strftime("%H:%M:%S")
+current_date_str = ist_now.strftime("%d-%b-%Y")
+
 st.title("📊 Intraday & BTST Live Algo Dashboard")
+st.markdown(f"🕒 **Live Market Time:** `{current_date_str} | {current_time_str} IST`")
 st.subheader(
     f"💰 Current Capital: ₹{CURRENT_CAPITAL:,.2f} | "
     f"Lots: {calculated_lots} (Qty: {LOT_SIZE})"
@@ -175,7 +181,7 @@ except Exception:
 
 st.metric(label="📈 NIFTY 50 LIVE SPOT PRICE", value=f"₹{spot_price:.2f}")
 
-now_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).time()
+now_time = ist_now.time()
 market_close_limit = datetime.time(15, 15)
 
 if st.session_state.day_over:
@@ -285,12 +291,9 @@ else:
             st.session_state.sl_trailed_to_cost = True
             save_state(dict(st.session_state))
 
-    # 🛑 **मोठी स्पाइक कॅन्डल कंट्रोल करणारी लॉजिक (Spike Limiter)**
     if st.session_state.ohlc_data:
         last_c = st.session_state.ohlc_data[-1]
         open_p = last_c.get("open", live_option_premium)
-        
-        # हाय आणि लो च्या मर्यादेवर कॅप (जास्तीत जास्त ±8 ते १० पॉईंट्सची मूव्हमेंट एका कॅन्डलमध्ये)
         max_allowed_high = open_p + 10.0
         min_allowed_low = open_p - 10.0
         
