@@ -8,6 +8,7 @@ import json
 import os
 import random
 from streamlit_autorefresh import st_autorefresh
+import plotly.graph_objects as go
 import pandas as pd
 
 # ==========================================
@@ -348,7 +349,7 @@ else:
         st.rerun()
 
 # ==========================================
-# ५. योग्य प्राईस स्केल असलेला लाईव्ह चार्ट सेक्शन
+# ५. योग्य झूम लेव्हल असलेला प्लॉटली चार्ट सेक्शन
 # ==========================================
 st.subheader(f"📈 Live Price Movement Chart ({time_frame})")
 
@@ -361,10 +362,30 @@ try:
     
     df_chart = pd.DataFrame(st.session_state.ohlc_data)
     df_chart["Time"] = pd.to_datetime(df_chart["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
-    df_chart.set_index("Time", inplace=True)
     
-    # चार्ट स्केल थेट प्रीमियमच्या किमतीवर झूम ठेवण्यासाठी
-    st.line_chart(df_chart[["close"]], height=380, color="#26a69a")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df_chart["Time"], y=df_chart["close"],
+        mode='lines+markers', name='Premium',
+        line=dict(color='#26a69a', width=2)
+    ))
+
+    # ट्रेड चालू असल्यास चार्टवर एंट्री, टार्गेट आणि एसएल रेषा दाखवणे
+    if is_active_trade:
+        fig.add_hline(y=float(st.session_state.premium_entry), line_dash="solid", line_color="blue", annotation_text="ENTRY")
+        fig.add_hline(y=float(st.session_state.current_tgt), line_dash="dash", line_color="green", annotation_text="TARGET")
+        fig.add_hline(y=float(st.session_state.current_sl), line_dash="dash", line_color="red", annotation_text="SL")
+
+    fig.update_layout(
+        height=400,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        yaxis=dict(side="right", autorange=True), # <--- ऑटोमॅटिक प्राईस झूम
+        xaxis=dict(type='date', tickformat='%H:%M')
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
     
     if is_active_trade:
         st.info(f"🔵 **Trade Levels** ➔ Entry: ₹{st.session_state.premium_entry} | Target: ₹{st.session_state.current_tgt} | StopLoss: ₹{st.session_state.current_sl}")
